@@ -46,10 +46,11 @@ void http_session::do_read_header()
 
     // Make the new request_parser empty before reading,
     // otherwise the operation behavior is undefined.
-    req_parser_ = std::make_unique<http::request_parser<http::empty_body>>();
+    req_parser_ = std::make_unique<parser_handler<http::empty_body>>();
 
     // Read a request
-    http::async_read_header(socket_, buffer_, *req_parser_,
+    http::async_read_header(socket_, buffer_,
+            static_cast<parser_handler<http::empty_body>*>(req_parser_.get())->parser_,
         net::bind_executor(
             strand_,
             std::bind(
@@ -111,24 +112,24 @@ void http_session::on_read_header(beast::error_code ec)
     }
 
     // See if it is a WebSocket Upgrade
-    if(websocket::is_upgrade(req_parser_->get()))
+    if(websocket::is_upgrade(
+                static_cast<parser_handler<http::empty_body>*>(req_parser_.get())->parser_.get()))
     {
         // Make timer expire immediately, by setting expiry to time_point::min we can detect
         // the upgrade to websocket in the timer handler
         timer_.expires_at((std::chrono::steady_clock::time_point::min)());
 
         // Create a WebSocket websocket_session by transferring the socket
-        app_->handle_upgrade(std::move(socket_), std::move(req_parser_->release()));
+        app_->handle_upgrade(std::move(socket_),
+                std::move(static_cast<parser_handler<http::empty_body>*>(req_parser_.get())->parser_.release()));
         return;
     }
     
     // Handle headers
-    app_->handle_header(req_parser_->get(), queue_);
+    app_->handle_header(
+            static_cast<parser_handler<http::empty_body>*>(req_parser_.get())->parser_.get(),
+            queue_);
      
-    //FIXME
-    auto parser = 
-        std::make_shared<http::request_parser<http::string_body>>(
-                std::move(*req_parser_));
     std::function<void(http::request<http::string_body>&&, http_session_queue&)> cb
         = [](http::request<http::string_body>&& req,
                http_session_queue& queue)
@@ -141,7 +142,12 @@ void http_session::on_read_header(beast::error_code ec)
                 res.prepare_payload();
                 queue.send(std::move(res));
             };
-    do_read_body(std::move(parser), cb);
+
+    req_parser_ = std::make_unique<parser_handler<http::string_body>>(
+                std::move(*static_cast<parser_handler<http::empty_body>*>(req_parser_.get())),
+                cb);
+
+    do_read_body<http::string_body>();
 }
 
 void http_session::on_write(beast::error_code ec, bool close)

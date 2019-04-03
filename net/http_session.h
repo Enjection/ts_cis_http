@@ -106,13 +106,32 @@ class http_session : public std::enable_shared_from_this<http_session>
             }
         }
     };
+    class parser_handler_base
+    {
+    };
+    template <class Body>
+    class parser_handler : public parser_handler_base
+    {
+    public:
+        parser_handler() = default;
+        template <class OtherBody>
+        parser_handler(
+                parser_handler<OtherBody>&& other,
+                std::function<void(http::request<http::string_body>&&, http_session_queue&)> cb)
+            : parser_(std::move(other.parser_))
+            , cb_(cb)
+        {}
+        http::request_parser<Body> parser_;
+        std::function<void(http::request<http::string_body>&&, http_session_queue&)> cb_;
+    };
     tcp::socket socket_;
     net::strand<
         net::io_context::executor_type> strand_;
     net::steady_timer timer_;
     beast::flat_buffer buffer_;
     std::shared_ptr<web_app const> app_;
-    std::unique_ptr<http::request_parser<http::empty_body>> req_parser_;
+    //std::unique_ptr<http::request_parser<http::empty_body>> req_parser_;
+    std::unique_ptr<parser_handler_base> req_parser_;
     http_session_queue queue_;
     friend class http_session_queue;
 public:
@@ -128,56 +147,26 @@ public:
     void do_read_header();
    
     template <class Body>
-    void do_read_body(
-            std::shared_ptr<http::request_parser<Body>> parser,
-            std::function<void(http::request<Body>&&, http_session_queue&)> cb)
+    void do_read_body()
     {
-        std::function<void(beast::error_code ec, std::size_t bytes_transferred)> on_read_body = 
-                [
-                    &,
-                    self = shared_from_this(),
-                    parser = parser,
-                    cb
-                ]
-                (beast::error_code ec, std::size_t bytes_transferred)
-                {
-                    if(ec == net::error::operation_aborted)
-                    {
-                        return;
-                    }
-
-                    // This means they closed the connection
-                    if(ec == http::error::end_of_stream)
-                    {
-                        return do_close();
-                    }
-
-                    if(ec)
-                    {
-                        return fail(ec, "read");
-                    }
-                    
-                    // Send the response
-                    cb(parser->release(), queue_);
-
-                    if(!queue_.is_full())
-                    {
-                        do_read_header();
-                    }
-                };
-        http::async_read(socket_, buffer_, *parser,
+        http::async_read(socket_, buffer_,
+            static_cast<parser_handler<Body>*>(req_parser_.get())->parser_,
             net::bind_executor(
                 strand_,
-                std::move(on_read_body)));
+                std::bind(
+                    &http_session::on_read_body<Body>,
+                    shared_from_this(),
+                    std::placeholders::_1,
+                    std::placeholders::_2)));
     }
 
     // Called when the timer expires.
     void on_timer(beast::error_code ec);
 
     void on_read_header(beast::error_code ec);
-    /*
+    
     template <class Body>
-    void on_read_body(http::request<Body>& req, beast::error_code ec)
+    void on_read_body(beast::error_code ec, std::size_t bytes_transferred)
     {
         // Happens when the timer closes the socket
         if(ec == net::error::operation_aborted)
@@ -196,8 +185,11 @@ public:
             return fail(ec, "read");
         }
         
-        // Send the response
-        //FIXME app_->handle_body(req_parser_.get(), queue_);
+        auto* req_parser = static_cast<parser_handler<Body>*>(req_parser_.get());
+
+        req_parser->cb_(
+                std::move(req_parser->parser_.release()),
+                queue_);
         
         // If we aren't at the queue limit, try to pipeline another request
         if(!queue_.is_full())
@@ -205,7 +197,7 @@ public:
             do_read_header();
         }
     }
-    */
+    
     void on_write(beast::error_code ec, bool close);
 
     void do_close();
