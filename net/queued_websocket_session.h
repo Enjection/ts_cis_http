@@ -42,7 +42,7 @@ private:
 public:
     static void accept_handler(
             tcp::socket&& socket,
-            http::request<http::string_body>&& req,
+            http::request<http::empty_body>&& req,
             request_handler_t handler);
     explicit queued_websocket_session(tcp::socket socket, request_handler_t handler);
 #ifndef NDEBUG

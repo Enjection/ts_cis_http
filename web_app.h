@@ -14,6 +14,7 @@ class web_app
 {
 public:
     using request_t = http::request<http::string_body>;
+    using upgrade_request_t = http::request<http::empty_body>;
     using queue_t = http_session::queue;
     using context_t = request_context;
     using handler_t = 
@@ -23,7 +24,7 @@ public:
             context_t&)>;
     using ws_handler_t = 
         std::function<handle_result(
-                request_t&,
+                upgrade_request_t&,
                 tcp::socket&,
                 context_t&)>;
 private:
@@ -39,10 +40,13 @@ public:
     void set_error_handler(const handler_t& handler);
     void set_ws_error_handler(const ws_handler_t& handler);
     void listen(const tcp::endpoint& endpoint);
+    void handle_header(
+            http::request<http::empty_body>& req,
+            http_session::queue& queue) const;
     void handle(
             http::request<http::string_body>&& req,
             http_session::queue& queue) const;
     void handle_upgrade(
             tcp::socket&& socket,
-            http::request<http::string_body>&& req) const;
+            http::request<http::empty_body>&& req) const;
 };

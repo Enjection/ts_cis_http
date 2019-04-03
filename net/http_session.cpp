@@ -36,24 +36,24 @@ void http_session::run()
     // continuously, this simplifies the code.
     on_timer({});
 
-    do_read();
+    do_read_header();
 }
 
-void http_session::do_read()
+void http_session::do_read_header()
 {
     // Set the timer
     timer_.expires_after(std::chrono::seconds(15));
 
-    // Make the request empty before reading,
+    // Make the new request_parser empty before reading,
     // otherwise the operation behavior is undefined.
-    req_ = {};
+    req_parser_ = std::make_unique<http::request_parser<http::empty_body>>();
 
     // Read a request
-    http::async_read(socket_, buffer_, req_,
+    http::async_read_header(socket_, buffer_, *req_parser_,
         net::bind_executor(
             strand_,
             std::bind(
-                &http_session::on_read,
+                &http_session::on_read_header,
                 shared_from_this(),
                 std::placeholders::_1)));
 }
@@ -91,7 +91,7 @@ void http_session::on_timer(beast::error_code ec)
                 std::placeholders::_1)));
 }
 
-void http_session::on_read(beast::error_code ec)
+void http_session::on_read_header(beast::error_code ec)
 {
     // Happens when the timer closes the socket
     if(ec == net::error::operation_aborted)
@@ -111,25 +111,37 @@ void http_session::on_read(beast::error_code ec)
     }
 
     // See if it is a WebSocket Upgrade
-    if(websocket::is_upgrade(req_))
+    if(websocket::is_upgrade(req_parser_->get()))
     {
         // Make timer expire immediately, by setting expiry to time_point::min we can detect
         // the upgrade to websocket in the timer handler
         timer_.expires_at((std::chrono::steady_clock::time_point::min)());
 
         // Create a WebSocket websocket_session by transferring the socket
-        app_->handle_upgrade(std::move(socket_), std::move(req_));
+        app_->handle_upgrade(std::move(socket_), std::move(req_parser_->release()));
         return;
     }
-
-    // Send the response
-    app_->handle(std::move(req_), queue_);
-
-    // If we aren't at the queue limit, try to pipeline another request
-    if(!queue_.is_full())
-    {
-        do_read();
-    }
+    
+    // Handle headers
+    app_->handle_header(req_parser_->get(), queue_);
+     
+    //FIXME
+    auto parser = 
+        std::make_shared<http::request_parser<http::string_body>>(
+                std::move(*req_parser_));
+    std::function<void(http::request<http::string_body>&&, http_session_queue&)> cb
+        = [](http::request<http::string_body>&& req,
+               http_session_queue& queue)
+            {
+                http::response<http::string_body> res{http::status::not_found, req.version()};
+                res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+                res.set(http::field::content_type, "text/html");
+                res.keep_alive(req.keep_alive());
+                res.body() = "The resource '" + std::string(req.target()) + "' was not found.";
+                res.prepare_payload();
+                queue.send(std::move(res));
+            };
+    do_read_body(std::move(parser), cb);
 }
 
 void http_session::on_write(beast::error_code ec, bool close)
@@ -156,7 +168,7 @@ void http_session::on_write(beast::error_code ec, bool close)
     if(queue_.on_write())
     {
         // Read another request
-        do_read();
+        do_read_header();
     }
 }
 

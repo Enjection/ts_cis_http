@@ -47,6 +47,13 @@ void web_app::listen(const tcp::endpoint& endpoint)
     l->run();
 }
 
+void web_app::handle_header(
+            http::request<http::empty_body>& req,
+            http_session::queue& queue) const
+{
+
+}
+
 void web_app::handle(
             http::request<http::string_body>&& req,
             http_session::queue& queue) const
@@ -70,7 +77,7 @@ void web_app::handle(
 
 void web_app::handle_upgrade(
         tcp::socket&& socket,
-        http::request<http::string_body>&& req) const
+        http::request<http::empty_body>&& req) const
 {
     context_t ctx{};
     for(auto& handler : ws_handlers_)

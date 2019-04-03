@@ -98,14 +98,18 @@ int main(int argc, char* argv[])
             std::bind(&ws_handle_get_build_info, projects, authorization_handler, _1, _2, _3, _4));
 
     ws_route.append_handler([&ws_dispatcher](
-                http::request<http::string_body>& req,
+                http::request<http::empty_body>& req,
                 tcp::socket& socket,
                 request_context& ctx)
             {
                 queued_websocket_session::accept_handler(
                         std::move(socket),
                         std::move(req),
-                        std::bind(&websocket_event_dispatcher::dispatch, ws_dispatcher, ctx, _1, _2, _3, _4));
+                        std::bind(
+                            &websocket_event_dispatcher::dispatch,
+                            ws_dispatcher,
+                            ctx,
+                            _1, _2, _3, _4));
                 return handle_result::done;
             });
 

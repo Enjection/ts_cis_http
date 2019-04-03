@@ -55,7 +55,7 @@ bool websocket_queue::on_write()
 
 void queued_websocket_session::accept_handler(
             tcp::socket&& socket,
-            http::request<http::string_body>&& req,
+            http::request<http::empty_body>&& req,
             request_handler_t handler)
 {
     std::make_shared<queued_websocket_session>(
