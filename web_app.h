@@ -13,18 +13,17 @@ class web_app
     : public std::enable_shared_from_this<web_app>
 {
 public:
-    using request_t = http::request<http::string_body>;
-    using upgrade_request_t = http::request<http::empty_body>;
+    using request_header_t = http::request<http::empty_body>;
     using queue_t = http_session::queue;
     using context_t = request_context;
     using handler_t = 
         std::function<handle_result(
-            request_t&,
+            request_header_t&,
             queue_t&,
             context_t&)>;
     using ws_handler_t = 
         std::function<handle_result(
-                upgrade_request_t&,
+                request_header_t&,
                 tcp::socket&,
                 context_t&)>;
 private:
@@ -41,13 +40,13 @@ public:
     void set_ws_error_handler(const ws_handler_t& handler);
     void listen(const tcp::endpoint& endpoint);
     void handle_header(
-            http::request<http::empty_body>& req,
+            request_header_t& req,
             http_session::request_reader& reader,
             http_session::queue& queue) const;
     void handle(
-            http::request<http::string_body>&& req,
+            http::request<http::empty_body>&& req,
             http_session::queue& queue) const;
     void handle_upgrade(
             tcp::socket&& socket,
-            http::request<http::empty_body>&& req) const;
+            request_header_t&& req) const;
 };

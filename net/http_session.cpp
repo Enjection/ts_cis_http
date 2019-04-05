@@ -168,3 +168,7 @@ void http_session::do_close()
 
     // At this point the connection is closed gracefully
 }
+
+template <>
+void http_session::http_request_reader::upgrade_parser<http::empty_body>()
+{}

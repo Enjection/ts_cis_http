@@ -10,12 +10,12 @@ class file_handler
 public:
     file_handler(const std::string& doc_root);
     handle_result operator()(
-            http::request<http::string_body>& req,
+            http::request<http::empty_body>& req,
             http_session::queue& queue,
             request_context& ctx);
 
     handle_result single_file(
-            http::request<http::string_body>& req,
+            http::request<http::empty_body>& req,
             http_session::queue& queue,
             request_context& ctx,
             std::string_view path);

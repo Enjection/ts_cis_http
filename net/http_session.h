@@ -114,7 +114,7 @@ class http_session : public std::enable_shared_from_this<http_session>
             virtual const std::type_info& type_info() const = 0;
         };
         template <class Body>
-        struct parser_wrapper_impl : public parser_wrapper
+        struct parser_wrapper_impl : parser_wrapper
         {
             http::request_parser<Body> parser;
             parser_wrapper_impl() = default;
@@ -146,6 +146,12 @@ class http_session : public std::enable_shared_from_this<http_session>
         {
             parser_ = std::make_unique<parser_wrapper_impl<http::empty_body>>();
         }
+        template<class Body>
+        void upgrade_parser()
+        {
+            parser_ = std::make_unique<parser_wrapper_impl<Body>>(
+                    std::move(get_header_parser()));
+        }
         friend class http_session;
     public:
         explicit http_request_reader(http_session& self)
@@ -156,8 +162,8 @@ class http_session : public std::enable_shared_from_this<http_session>
                     http::request<Body>&&,
                     http_session_queue&)> cb)
         {
-            parser_ = std::make_unique<parser_wrapper_impl<Body>>(
-                    std::move(get_header_parser()));
+            upgrade_parser<Body>();
+
             http::async_read(self_.socket_, self_.buffer_, get_parser<Body>(),
                     net::bind_executor(
                 self_.strand_,
@@ -165,6 +171,18 @@ class http_session : public std::enable_shared_from_this<http_session>
                     &http_session::on_read_body<Body>,
                     self_.shared_from_this(),
                     cb,
+                    std::placeholders::_1,
+                    std::placeholders::_2)));
+        }
+        void done()
+        {
+            http::async_read(self_.socket_, self_.buffer_, get_header_parser(),
+                    net::bind_executor(
+                self_.strand_,
+                std::bind(
+                    &http_session::on_read_body<http::empty_body>,
+                    self_.shared_from_this(),
+                    nullptr,
                     std::placeholders::_1,
                     std::placeholders::_2)));
         }
@@ -239,3 +257,6 @@ public:
 
     void do_close();
 };
+
+template <>
+void http_session::http_request_reader::upgrade_parser<http::empty_body>();

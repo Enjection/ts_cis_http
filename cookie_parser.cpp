@@ -3,7 +3,7 @@
 #include "request_util.h"
 
 handle_result cookie_parser::parse(
-        http::request<http::string_body>& req,
+        http::request<http::empty_body>& req,
         http_session::queue& /*queue*/,
         request_context& ctx)
 {

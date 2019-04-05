@@ -85,5 +85,5 @@ private:
     std::vector<std::pair<boost::regex, std::unique_ptr<handlers_chain>>> routes_;
 };
 
-using http_router = router<http::string_body, http_session::queue&, request_context&>;
+using http_router = router<http::empty_body, http_session::queue&, request_context&>;
 using websocket_router = router<http::empty_body, tcp::socket&, request_context&>;

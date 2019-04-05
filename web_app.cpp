@@ -48,12 +48,12 @@ void web_app::listen(const tcp::endpoint& endpoint)
 }
 
 void web_app::handle_header(
-            http::request<http::empty_body>& req,
+            request_header_t& req,
             http_session::request_reader& reader,
             http_session::queue& queue) const
 {
     std::function<void(
-                    http::request<http::string_body>&&,
+                    http::request<http::empty_body>&&,
                     http_session::queue&)> cb = std::bind(
                 &web_app::handle,
                 shared_from_this(),
@@ -63,7 +63,7 @@ void web_app::handle_header(
 }
 
 void web_app::handle(
-            http::request<http::string_body>&& req,
+            http::request<http::empty_body>&& req,
             http_session::queue& queue) const
 {
     context_t ctx{};
@@ -85,7 +85,7 @@ void web_app::handle(
 
 void web_app::handle_upgrade(
         tcp::socket&& socket,
-        http::request<http::empty_body>&& req) const
+        request_header_t&& req) const
 {
     context_t ctx{};
     for(auto& handler : ws_handlers_)
