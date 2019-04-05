@@ -106,23 +106,68 @@ class http_session : public std::enable_shared_from_this<http_session>
             }
         }
     };
-    class parser_handler_base
+    class http_request_reader
     {
-    };
-    template <class Body>
-    class parser_handler : public parser_handler_base
-    {
+        struct parser_wrapper
+        {
+            virtual ~parser_wrapper() = default;
+            virtual const std::type_info& type_info() const = 0;
+        };
+        template <class Body>
+        struct parser_wrapper_impl : public parser_wrapper
+        {
+            http::request_parser<Body> parser;
+            parser_wrapper_impl() = default;
+            parser_wrapper_impl(
+                    http::request_parser<http::empty_body>&& other)
+                : parser(std::move(other))
+            {}
+            const std::type_info& type_info() const
+            {
+                return typeid(parser);
+            }
+        };
+        http_session& self_;
+        std::unique_ptr<parser_wrapper> parser_;
+        template<class Body>
+        http::request_parser<Body>& get_parser()
+        {
+            if(typeid(http::request_parser<Body>) != parser_->type_info())
+            {
+                throw std::runtime_error("Bad parser cast");
+            }
+            return static_cast<parser_wrapper_impl<Body>&>(*parser_).parser;
+        }
+        http::request_parser<http::empty_body>& get_header_parser()
+        {
+            return get_parser<http::empty_body>();
+        }
+        void prepare()
+        {
+            parser_ = std::make_unique<parser_wrapper_impl<http::empty_body>>();
+        }
+        friend class http_session;
     public:
-        parser_handler() = default;
-        template <class OtherBody>
-        parser_handler(
-                parser_handler<OtherBody>&& other,
-                std::function<void(http::request<http::string_body>&&, http_session_queue&)> cb)
-            : parser_(std::move(other.parser_))
-            , cb_(cb)
+        explicit http_request_reader(http_session& self)
+            : self_(self)
         {}
-        http::request_parser<Body> parser_;
-        std::function<void(http::request<http::string_body>&&, http_session_queue&)> cb_;
+        template<class Body>
+        void async_read_body(std::function<void(
+                    http::request<Body>&&,
+                    http_session_queue&)> cb)
+        {
+            parser_ = std::make_unique<parser_wrapper_impl<Body>>(
+                    std::move(get_header_parser()));
+            http::async_read(self_.socket_, self_.buffer_, get_parser<Body>(),
+                    net::bind_executor(
+                self_.strand_,
+                std::bind(
+                    &http_session::on_read_body<Body>,
+                    self_.shared_from_this(),
+                    cb,
+                    std::placeholders::_1,
+                    std::placeholders::_2)));
+        }
     };
     tcp::socket socket_;
     net::strand<
@@ -130,11 +175,12 @@ class http_session : public std::enable_shared_from_this<http_session>
     net::steady_timer timer_;
     beast::flat_buffer buffer_;
     std::shared_ptr<web_app const> app_;
-    //std::unique_ptr<http::request_parser<http::empty_body>> req_parser_;
-    std::unique_ptr<parser_handler_base> req_parser_;
     http_session_queue queue_;
+    http_request_reader request_reader_;
     friend class http_session_queue;
+    friend class http_request_reader;
 public:
+    using request_reader = http_request_reader;
     using queue = http_session_queue;
     // Take ownership of the socket
     explicit http_session(
@@ -145,28 +191,20 @@ public:
     void run();
 
     void do_read_header();
-   
-    template <class Body>
-    void do_read_body()
-    {
-        http::async_read(socket_, buffer_,
-            static_cast<parser_handler<Body>*>(req_parser_.get())->parser_,
-            net::bind_executor(
-                strand_,
-                std::bind(
-                    &http_session::on_read_body<Body>,
-                    shared_from_this(),
-                    std::placeholders::_1,
-                    std::placeholders::_2)));
-    }
 
     // Called when the timer expires.
     void on_timer(beast::error_code ec);
 
     void on_read_header(beast::error_code ec);
     
+    
     template <class Body>
-    void on_read_body(beast::error_code ec, std::size_t bytes_transferred)
+    void on_read_body(
+            std::function<void(
+                    http::request<Body>&&,
+                    http_session_queue&)> cb,
+            beast::error_code ec,
+            std::size_t bytes_transferred)
     {
         // Happens when the timer closes the socket
         if(ec == net::error::operation_aborted)
@@ -185,12 +223,11 @@ public:
             return fail(ec, "read");
         }
         
-        auto* req_parser = static_cast<parser_handler<Body>*>(req_parser_.get());
+        if(cb)
+        {
+            cb(request_reader_.get_parser<Body>().release(), queue_);
+        }
 
-        req_parser->cb_(
-                std::move(req_parser->parser_.release()),
-                queue_);
-        
         // If we aren't at the queue limit, try to pipeline another request
         if(!queue_.is_full())
         {

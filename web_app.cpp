@@ -49,9 +49,17 @@ void web_app::listen(const tcp::endpoint& endpoint)
 
 void web_app::handle_header(
             http::request<http::empty_body>& req,
+            http_session::request_reader& reader,
             http_session::queue& queue) const
 {
-
+    std::function<void(
+                    http::request<http::string_body>&&,
+                    http_session::queue&)> cb = std::bind(
+                &web_app::handle,
+                shared_from_this(),
+                std::placeholders::_1,
+                std::placeholders::_2);
+    reader.async_read_body(cb);
 }
 
 void web_app::handle(

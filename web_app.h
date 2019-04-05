@@ -42,6 +42,7 @@ public:
     void listen(const tcp::endpoint& endpoint);
     void handle_header(
             http::request<http::empty_body>& req,
+            http_session::request_reader& reader,
             http_session::queue& queue) const;
     void handle(
             http::request<http::string_body>&& req,

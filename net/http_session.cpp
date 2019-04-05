@@ -16,6 +16,7 @@ http_session::http_session(
         (std::chrono::steady_clock::time_point::max)())
     , app_(app)
     , queue_(*this)
+    , request_reader_(*this)
 {
 }
 
@@ -46,11 +47,11 @@ void http_session::do_read_header()
 
     // Make the new request_parser empty before reading,
     // otherwise the operation behavior is undefined.
-    req_parser_ = std::make_unique<parser_handler<http::empty_body>>();
+    request_reader_.prepare(); 
 
     // Read a request
     http::async_read_header(socket_, buffer_,
-            static_cast<parser_handler<http::empty_body>*>(req_parser_.get())->parser_,
+        request_reader_.get_header_parser(),
         net::bind_executor(
             strand_,
             std::bind(
@@ -112,42 +113,23 @@ void http_session::on_read_header(beast::error_code ec)
     }
 
     // See if it is a WebSocket Upgrade
-    if(websocket::is_upgrade(
-                static_cast<parser_handler<http::empty_body>*>(req_parser_.get())->parser_.get()))
+    if(websocket::is_upgrade(request_reader_.get_header_parser().get()))
     {
         // Make timer expire immediately, by setting expiry to time_point::min we can detect
         // the upgrade to websocket in the timer handler
         timer_.expires_at((std::chrono::steady_clock::time_point::min)());
 
         // Create a WebSocket websocket_session by transferring the socket
-        app_->handle_upgrade(std::move(socket_),
-                std::move(static_cast<parser_handler<http::empty_body>*>(req_parser_.get())->parser_.release()));
+        app_->handle_upgrade(
+                std::move(socket_),
+                std::move(request_reader_.get_header_parser().release()));
         return;
     }
     
-    // Handle headers
     app_->handle_header(
-            static_cast<parser_handler<http::empty_body>*>(req_parser_.get())->parser_.get(),
+            request_reader_.get_header_parser().get(),
+            request_reader_,
             queue_);
-     
-    std::function<void(http::request<http::string_body>&&, http_session_queue&)> cb
-        = [](http::request<http::string_body>&& req,
-               http_session_queue& queue)
-            {
-                http::response<http::string_body> res{http::status::not_found, req.version()};
-                res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-                res.set(http::field::content_type, "text/html");
-                res.keep_alive(req.keep_alive());
-                res.body() = "The resource '" + std::string(req.target()) + "' was not found.";
-                res.prepare_payload();
-                queue.send(std::move(res));
-            };
-
-    req_parser_ = std::make_unique<parser_handler<http::string_body>>(
-                std::move(*static_cast<parser_handler<http::empty_body>*>(req_parser_.get())),
-                cb);
-
-    do_read_body<http::string_body>();
 }
 
 void http_session::on_write(beast::error_code ec, bool close)
