@@ -25,6 +25,9 @@
 #include "websocket_event_dispatcher.h"
 #include "websocket_event_handlers.h"
 
+//FIXME
+#include "net/basic_multipart_form_body.h"
+
 namespace beast = boost::beast;                 // from <boost/beast.hpp>
 namespace net = boost::asio;                    // from <boost/asio.hpp>
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
@@ -56,10 +59,58 @@ int main(int argc, char* argv[])
     auto public_router = std::make_shared<http_router>();
     auto& index_route = public_router->add_route("/");
     index_route.append_handler(
-            std::bind(&file_handler::single_file, files, _1, _2, _3, "/index.html"));
+            std::bind(&file_handler::single_file, files, _1, _2, _3, _4, "/index.html"));
+    auto& upload_route = public_router->add_route("/upload/(.+)");
+    upload_route.append_handler([](
+        http::request<http::empty_body>& req,
+        http_session::request_reader& reader,
+        http_session::queue& queue,
+        request_context& ctx)
+            {
+                using multipart_form_body 
+                    = basic_multipart_form_body<boost::beast::file>;
+                if(req.method() == http::verb::post
+                        && req[http::field::content_type].find("multipart/form-data") == 0)
+                {
+                    std::string boundary;
+                    auto boundary_begin = req[http::field::content_type].find("=");
+                    if(boundary_begin != req[http::field::content_type].npos)
+                    {
+                        boundary = req[http::field::content_type].substr(
+                                boundary_begin + 1,
+                                req[http::field::content_type].size());
+                    }
+                    reader.async_read_body<multipart_form_body>(
+                            [&boundary](http::request<multipart_form_body>& req)
+                            {
+                                beast::error_code ec;
+                                req.body().open("/tmp/mfb_test", beast::file_mode::write, ec);
+                                req.body().set_boundary(boundary);
+                                req.body().set_tmp_dir("/home/mokinia/workspace/save_dir", ec);
+                            },
+                            [ctx](
+                                http::request<multipart_form_body>&& req,
+                                http_session::queue& queue)
+                            {
+                                http::response<http::empty_body> res{
+                                    http::status::ok,
+                                    req.version()};
+                                    res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+                                    res.set(http::field::content_type, "text/html");
+                                    res.keep_alive(req.keep_alive());
+                                queue.send(std::move(res));
+                            });
+                }
+                else
+                {
+                    queue.send(response::not_found(std::move(req)));
+                    reader.done();
+                }
+                return handle_result::done;
+            });
     public_router->add_catch_route()
         .append_handler(
-                std::bind(&file_handler::operator(), files, _1, _2, _3));
+                std::bind(&file_handler::operator(), files, _1, _2, _3, _4));
     auto ws_router = std::make_shared<websocket_router>();
     auto& ws_route = ws_router->add_route("/ws(\\?.+)*");
 
@@ -118,12 +169,12 @@ int main(int argc, char* argv[])
             std::bind(
                 &handle_authenticate,
                 authentication_handler,
-                _1, _2, _3));
+                _1, _2, _3, _4));
     app->append_handler(
             std::bind(
                 &http_router::operator(),
                 public_router,
-                _1, _2, _3));
+                _1, _2, _3, _4));
     app->append_ws_handler(
             std::bind(
                 &websocket_router::operator(),
@@ -138,13 +189,13 @@ int main(int argc, char* argv[])
             std::bind(
                 &http_router::operator(),
                 cis_router,
-                _1, _2,_3));
+                _1, _2,_3, _4));
     auto& projects_route = cis_router->add_route("/projects");
     projects_route.append_handler(
             std::bind(
                 &handle_update_projects,
                 projects,
-                _1, _2, _3));
+                _1, _2, _3, _4));
     cis_app->listen(tcp::endpoint{cis_address, cis_port});
 
     // Capture SIGINT and SIGTERM to perform a clean shutdown

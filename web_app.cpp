@@ -52,6 +52,22 @@ void web_app::handle_header(
             http_session::request_reader& reader,
             http_session::queue& queue) const
 {
+    context_t ctx{};
+    for(auto& handler : handlers_)
+    {
+        auto result = handler(req, reader, queue, ctx);
+        switch(result)
+        {
+            case handle_result::next:
+                break;
+            case handle_result::done:
+                return;
+            case handle_result::error:
+                error_handler_(req, reader, queue, ctx);
+                return;
+        };
+    }
+    /*
     std::function<void(
                     http::request<http::empty_body>&&,
                     http_session::queue&)> cb = std::bind(
@@ -60,12 +76,14 @@ void web_app::handle_header(
                 std::placeholders::_1,
                 std::placeholders::_2);
     reader.async_read_body(cb);
+    */
 }
 
 void web_app::handle(
             http::request<http::empty_body>&& req,
             http_session::queue& queue) const
 {
+    /*
     context_t ctx{};
     for(auto& handler : handlers_)
     {
@@ -81,6 +99,7 @@ void web_app::handle(
                 return;
         };
     }
+    */
 }
 
 void web_app::handle_upgrade(

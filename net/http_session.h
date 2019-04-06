@@ -158,11 +158,15 @@ class http_session : public std::enable_shared_from_this<http_session>
             : self_(self)
         {}
         template<class Body>
-        void async_read_body(std::function<void(
+        void async_read_body(
+                std::function<void(http::request<Body>&)> prepare,    
+                std::function<void(
                     http::request<Body>&&,
                     http_session_queue&)> cb)
         {
             upgrade_parser<Body>();
+
+            prepare(get_parser<Body>().get());
 
             http::async_read(self_.socket_, self_.buffer_, get_parser<Body>(),
                     net::bind_executor(

@@ -9,6 +9,7 @@ class cookie_parser
 public:
     static handle_result parse(
             http::request<http::empty_body>& req,
+            http_session::request_reader& reader,
             http_session::queue& queue,
             request_context& ctx);
 };

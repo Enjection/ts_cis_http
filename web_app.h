@@ -19,6 +19,7 @@ public:
     using handler_t = 
         std::function<handle_result(
             request_header_t&,
+            http_session::request_reader&,
             queue_t&,
             context_t&)>;
     using ws_handler_t = 

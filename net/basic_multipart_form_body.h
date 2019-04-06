@@ -11,6 +11,8 @@
 #include <cstdio>
 #include <cstdint>
 #include <utility>
+#include <string>
+#include <filesystem>
 
 template<class File>
 struct basic_multipart_form_body
@@ -30,15 +32,6 @@ struct basic_multipart_form_body
     static std::uint64_t size(value_type const& body);
 };
 
-//[example_http_file_body_2
-
-/** The type of the @ref message::body member.
-
-    Messages declared using `basic_multipart_form_body` will have this type for
-    the body member. This rich class interface allow the file to be
-    opened with the file handle maintained directly in the object,
-    which is attached to the message.
-*/
 template<class File>
 class basic_multipart_form_body<File>::value_type
 {
@@ -49,6 +42,8 @@ class basic_multipart_form_body<File>::value_type
     friend class writer;
     friend struct basic_multipart_form_body;
 
+    std::string boundary_;
+    std::filesystem::path dir_;
     // This represents the open file
     File file_;
 
@@ -72,22 +67,19 @@ public:
     value_type& operator=(value_type&& other) = default;
 
     /// Returns `true` if the file is open
-    bool
-    is_open() const
+    bool is_open() const
     {
         return file_.is_open();
     }
 
     /// Returns the size of the file if open
-    std::uint64_t
-    size() const
+    std::uint64_t size() const
     {
         return file_size_;
     }
 
     /// Close the file if open
-    void
-    close();
+    void close();
 
     /** Open a file at the given path with the specified mode
 
@@ -97,8 +89,10 @@ public:
 
         @param ec Set to the error, if any occurred
     */
-    void
-    open(char const* path, boost::beast::file_mode mode, boost::beast::error_code& ec);
+    void open(char const* path, boost::beast::file_mode mode, boost::beast::error_code& ec);
+    
+    void set_boundary(const std::string& boundary);
+    void set_tmp_dir(const std::string& dir_path, boost::beast::error_code& ec);
 
     /** Set the open file
 
@@ -110,25 +104,21 @@ public:
 
         @param ec Set to the error, if any occurred
     */
-    void
-    reset(File&& file, boost::beast::error_code& ec);
+    void reset(File&& file, boost::beast::error_code& ec);
 };
 
 template<class File>
-void
-basic_multipart_form_body<File>::
-value_type::
-close()
+void basic_multipart_form_body<File>::value_type::close()
 {
     boost::beast::error_code ignored;
     file_.close(ignored);
 }
 
 template<class File>
-void
-basic_multipart_form_body<File>::
-value_type::
-open(char const* path, boost::beast::file_mode mode, boost::beast::error_code& ec)
+void basic_multipart_form_body<File>::value_type::open(
+        char const* path,
+        boost::beast::file_mode mode,
+        boost::beast::error_code& ec)
 {
     // Open the file
     file_.open(path, mode, ec);
@@ -145,10 +135,30 @@ open(char const* path, boost::beast::file_mode mode, boost::beast::error_code& e
 }
 
 template<class File>
-void
-basic_multipart_form_body<File>::
-value_type::
-reset(File&& file, boost::beast::error_code& ec)
+void basic_multipart_form_body<File>::value_type::set_boundary(
+        const std::string& boundary)
+{
+    boundary_ = boundary;
+}
+
+template<class File>
+void basic_multipart_form_body<File>::value_type::set_tmp_dir(
+        const std::string& dir_path,
+        boost::beast::error_code& ec)
+{
+    dir_ = dir_path;
+    std::error_code std_ec;
+    bool is_dir = std::filesystem::is_directory(dir_, std_ec);
+    if(!is_dir)
+    {
+        ec = make_error_code(boost::system::errc::not_a_directory);
+    }
+}
+
+template<class File>
+void basic_multipart_form_body<File>::value_type::reset(
+        File&& file,
+        boost::beast::error_code& ec)
 {
     // First close the file if open
     if(file_.is_open())
@@ -166,9 +176,8 @@ reset(File&& file, boost::beast::error_code& ec)
 
 // This is called from message::payload_size
 template<class File>
-std::uint64_t
-basic_multipart_form_body<File>::
-size(value_type const& body)
+std::uint64_t basic_multipart_form_body<File>::size(
+        value_type const& body)
 {
     // Forward the call to the body
     return body.size();
@@ -229,8 +238,7 @@ public:
     // gives the writer a chance to do something that might
     // need to return an error code.
     //
-    void
-    init(boost::beast::error_code& ec);
+    void init(boost::beast::error_code& ec);
 
     // This function is called zero or more times to
     // retrieve buffers. A return value of `boost::none`
@@ -238,8 +246,8 @@ public:
     // the contained pair will have the next buffer
     // to serialize, and a `bool` indicating whether
     // or not there may be additional buffers.
-    boost::optional<std::pair<const_buffers_type, bool>>
-    get(boost::beast::error_code& ec);
+    boost::optional<std::pair<const_buffers_type, bool>> get(
+            boost::beast::error_code& ec);
 };
 
 //]
@@ -252,9 +260,9 @@ public:
 //
 template<class File>
 template<bool isRequest, class Fields>
-basic_multipart_form_body<File>::
-writer::
-writer(boost::beast::http::header<isRequest, Fields>& h, value_type& b)
+basic_multipart_form_body<File>::writer::writer(
+        boost::beast::http::header<isRequest, Fields>& h,
+        value_type& b)
     : body_(b)
 {
     boost::ignore_unused(h);
@@ -268,10 +276,7 @@ writer(boost::beast::http::header<isRequest, Fields>& h, value_type& b)
 
 // Initializer
 template<class File>
-void
-basic_multipart_form_body<File>::
-writer::
-init(boost::beast::error_code& ec)
+void basic_multipart_form_body<File>::writer::init(boost::beast::error_code& ec)
 {
     // The error_code specification requires that we
     // either set the error to some value, or set it
@@ -287,10 +292,8 @@ init(boost::beast::error_code& ec)
 // read through the whole file.
 //
 template<class File>
-auto
-basic_multipart_form_body<File>::
-writer::
-get(boost::beast::error_code& ec) ->
+auto basic_multipart_form_body<File>::writer::get(
+        boost::beast::error_code& ec) ->
     boost::optional<std::pair<const_buffers_type, bool>>
 {
     // Calculate the smaller of our buffer size,
@@ -352,7 +355,13 @@ template<class File>
 class basic_multipart_form_body<File>::reader
 {
     value_type& body_;  // The body we are writing to
-
+    enum class state
+    {
+        init,
+        headers,
+        body,
+    } state_ = state::init;
+    std::string boundary_buffer_;
 public:
     // Constructor.
     //
@@ -362,8 +371,7 @@ public:
     // `b` is an instance of `basic_multipart_form_body`.
     //
     template<bool isRequest, class Fields>
-    explicit
-    reader(boost::beast::http::header<isRequest, Fields>&h, value_type& b);
+    explicit reader(boost::beast::http::header<isRequest, Fields>&h, value_type& b);
 
     // Initializer
     //
@@ -373,15 +381,14 @@ public:
     // the payload size (`content_length`) which we can
     // optionally use for optimization.
     //
-    void
-    init(boost::optional<std::uint64_t> const&, boost::beast::error_code& ec);
+    void init(boost::optional<std::uint64_t> const&, boost::beast::error_code& ec);
 
     // This function is called one or more times to store
     // buffer sequences corresponding to the incoming body.
     //
     template<class ConstBufferSequence>
-    std::size_t
-    put(ConstBufferSequence const& buffers,
+    std::size_t put(
+        ConstBufferSequence const& buffers,
         boost::beast::error_code& ec);
 
     // This function is called when writing is complete.
@@ -404,19 +411,16 @@ public:
 //
 template<class File>
 template<bool isRequest, class Fields>
-basic_multipart_form_body<File>::
-reader::
-reader(boost::beast::http::header<isRequest, Fields>& h, value_type& body)
+basic_multipart_form_body<File>::reader::reader(
+        boost::beast::http::header<isRequest, Fields>& h,
+        value_type& body)
     : body_(body)
 {
     boost::ignore_unused(h);
 }
 
 template<class File>
-void
-basic_multipart_form_body<File>::
-reader::
-init(
+void basic_multipart_form_body<File>::reader::init(
     boost::optional<std::uint64_t> const& content_length,
     boost::beast::error_code& ec)
 {
@@ -437,13 +441,12 @@ init(
 }
 
 // This will get called one or more times with body buffers
-//
+#include <iostream> //FIXME
 template<class File>
 template<class ConstBufferSequence>
-std::size_t
-basic_multipart_form_body<File>::
-reader::
-put(ConstBufferSequence const& buffers, boost::beast::error_code& ec)
+std::size_t basic_multipart_form_body<File>::reader::put(
+        ConstBufferSequence const& buffers,
+        boost::beast::error_code& ec)
 {
     // This function must return the total number of
     // bytes transferred from the input buffers.
@@ -454,14 +457,79 @@ put(ConstBufferSequence const& buffers, boost::beast::error_code& ec)
     for(auto it = boost::asio::buffer_sequence_begin(buffers);
         it != boost::asio::buffer_sequence_end(buffers); ++it)
     {
+        boost::asio::const_buffer buffer = *it;
+        std::copy(
+                        (const char*)buffer.data(),
+                        (const char*)buffer.data() + buffer.size(),
+                        std::ostream_iterator<char>(std::cout));
+        nwritten += buffer.size();
+        //read_until(boundary_buffer_, "\r\n", body_.boundary_.size() + 4);
+        /*
+        switch(state_)
+        {
+            case state::init:
+            {
+                read_until(boundary_buffer, "\r\n");
+                std::string_view str_view(
+                        static_cast<const char*>(buffer.data()),
+                        buffer.size());
+                auto pos = str_view.find("\r\n");
+                if(pos == str_view.npos)
+                {
+                    boundary_buffer_.append(str_view);
+                    nwritten += buffer.size();
+                    offset += buffer.size();
+                }
+                else
+                {
+                    boundary_buffer_.append(str_view.substr(0, pos + 2));
+                    nwritten += pos + 2;
+                    offset += pos + 2;
+                }
+
+                if(boundary_buffer_.size() >= body_.boundary_.size() + 4
+                    && body_.boundary_ == boundary_buffer_.substr(2, boundary_buffer_.size() - 4))
+                {
+                    boundary_buffer_.clear();
+                    state_ = state::headers;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            case state::headers:
+            {
+                nwritten += buffer.size() - offset;
+                std::cout << std::endl << "headers" << std::endl;
+                break;
+            }
+            case state::body:
+            {
+                break;
+            }
+        }*/
+        //switch(body_.state_)
+        //case(body_.state_.init):
+            //@find_boundary@body_.boundary_@\r\n
+            //change_state->headers
+        //case(body_.state_.headers):
+            //Content-Disposition: from-data; name="filename"; filename=FILENAME\r\n
+            //Content-Type: _CONTENT_TYPE_\r\n\r\n
+            //change_state->body
+        //case(body_.state_.body):
+            //write_until \r\nboundary\r\n
+            //change_state->headers
+        
+        /*
         // Write this buffer to the file
         boost::asio::const_buffer buffer = *it;
         nwritten += body_.file_.write(
             buffer.data(), buffer.size(), ec);
         if(ec)
             return nwritten;
+            */
     }
-
     // Indicate success
     // This is required by the error_code specification
     ec.assign(0, ec.category());
@@ -471,10 +539,8 @@ put(ConstBufferSequence const& buffers, boost::beast::error_code& ec)
 
 // Called after writing is done when there's no error.
 template<class File>
-void
-basic_multipart_form_body<File>::
-reader::
-finish(boost::beast::error_code& ec)
+void basic_multipart_form_body<File>::reader::finish(
+        boost::beast::error_code& ec)
 {
     // This has to be cleared before returning, to
     // indicate no error. The specification requires it.
