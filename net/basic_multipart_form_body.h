@@ -13,6 +13,8 @@
 #include <utility>
 #include <string>
 #include <filesystem>
+#include <boost/regex.hpp>
+#include <iostream>//FIXME
 
 template<class File>
 struct basic_multipart_form_body
@@ -49,7 +51,21 @@ class basic_multipart_form_body<File>::value_type
 
     // The cached file size
     std::uint64_t file_size_ = 0;
+    
+    struct value_t
+    {
+        explicit value_t(bool is_file_arg, std::string content_arg)
+            : is_file(is_file_arg)
+            , content(content_arg)
+        {}
+        bool is_file;
+        std::string content;
+    };
 
+    std::multimap<std::string, value_t> values_;
+    std::multimap<std::string, File> files_;
+    using values_iterator = typename std::multimap<std::string, value_t>::iterator;
+    using files_iterator = typename std::multimap<std::string, File>::iterator;
 public:
     /** Destructor.
 
@@ -93,7 +109,15 @@ public:
     
     void set_boundary(const std::string& boundary);
     void set_tmp_dir(const std::string& dir_path, boost::beast::error_code& ec);
-
+    
+    const std::multimap<std::string, value_t>& get_values() const
+    {
+        return values_;
+    }
+    const std::multimap<std::string, File>& get_files() const
+    {
+        return files_;
+    }
     /** Set the open file
 
         This function is used to set the open file. Any previously
@@ -355,13 +379,23 @@ template<class File>
 class basic_multipart_form_body<File>::reader
 {
     value_type& body_;  // The body we are writing to
+    bool cr_ = false;
+    bool if_file_ = false;
+    bool content_disposition_parsed_ = false;
     enum class state
     {
         init,
         headers,
         body,
-    } state_ = state::init;
-    std::string boundary_buffer_;
+        next_block
+    } parser_state_ = state::init;
+    std::string block_buffer_;
+    std::string next_block_buffer_;
+    typename value_type::values_iterator current_content_;
+    typename value_type::files_iterator current_file_;
+    void handle_data(const char* data, size_t size);
+    void handle_crlf();
+    void parse_content_disposition();
 public:
     // Constructor.
     //
@@ -441,7 +475,6 @@ void basic_multipart_form_body<File>::reader::init(
 }
 
 // This will get called one or more times with body buffers
-#include <iostream> //FIXME
 template<class File>
 template<class ConstBufferSequence>
 std::size_t basic_multipart_form_body<File>::reader::put(
@@ -458,83 +491,214 @@ std::size_t basic_multipart_form_body<File>::reader::put(
         it != boost::asio::buffer_sequence_end(buffers); ++it)
     {
         boost::asio::const_buffer buffer = *it;
-        std::copy(
-                        (const char*)buffer.data(),
-                        (const char*)buffer.data() + buffer.size(),
-                        std::ostream_iterator<char>(std::cout));
-        nwritten += buffer.size();
-        //read_until(boundary_buffer_, "\r\n", body_.boundary_.size() + 4);
-        /*
-        switch(state_)
-        {
-            case state::init:
-            {
-                read_until(boundary_buffer, "\r\n");
-                std::string_view str_view(
+
+        size_t offset = 0;
+        std::string_view str_view(
                         static_cast<const char*>(buffer.data()),
                         buffer.size());
-                auto pos = str_view.find("\r\n");
-                if(pos == str_view.npos)
-                {
-                    boundary_buffer_.append(str_view);
-                    nwritten += buffer.size();
-                    offset += buffer.size();
-                }
-                else
-                {
-                    boundary_buffer_.append(str_view.substr(0, pos + 2));
-                    nwritten += pos + 2;
-                    offset += pos + 2;
-                }
+        while(offset != str_view.size())
+        {
+            if(!cr_)
+            {
+                auto pos = str_view.find('\r', offset);
 
-                if(boundary_buffer_.size() >= body_.boundary_.size() + 4
-                    && body_.boundary_ == boundary_buffer_.substr(2, boundary_buffer_.size() - 4))
+                if(pos != str_view.npos)
                 {
-                    boundary_buffer_.clear();
-                    state_ = state::headers;
+                    //copy [offset, pos]
+                    handle_data(str_view.data() + offset,
+                                pos - offset);
+                    nwritten += pos - offset + 1;
+                    offset = pos + 1;
+                    cr_ = true;
+                    continue;
                 }
                 else
                 {
+                    //copy [offset, buffer.size())
+                    handle_data(str_view.data() + offset,
+                                str_view.size() - offset);
+                    nwritten += buffer.size() - offset;
                     break;
                 }
             }
-            case state::headers:
+            else if(str_view[offset] == '\n')
             {
-                nwritten += buffer.size() - offset;
-                std::cout << std::endl << "headers" << std::endl;
-                break;
+                //parse_block
+                handle_crlf();
             }
-            case state::body:
+            else
             {
-                break;
+                //add '\r'
+                handle_data("\r", 1);
+                //copy [offset]
+                handle_data(str_view.data() + offset, 1);
             }
-        }*/
-        //switch(body_.state_)
-        //case(body_.state_.init):
-            //@find_boundary@body_.boundary_@\r\n
-            //change_state->headers
-        //case(body_.state_.headers):
-            //Content-Disposition: from-data; name="filename"; filename=FILENAME\r\n
-            //Content-Type: _CONTENT_TYPE_\r\n\r\n
-            //change_state->body
-        //case(body_.state_.body):
-            //write_until \r\nboundary\r\n
-            //change_state->headers
-        
-        /*
-        // Write this buffer to the file
-        boost::asio::const_buffer buffer = *it;
-        nwritten += body_.file_.write(
-            buffer.data(), buffer.size(), ec);
-        if(ec)
-            return nwritten;
-            */
+            ++offset;
+            ++nwritten;
+            cr_ = false;
+        }
     }
     // Indicate success
     // This is required by the error_code specification
     ec.assign(0, ec.category());
 
     return nwritten;
+}
+
+template<class File>
+void basic_multipart_form_body<File>::reader::handle_data(
+        const char* data,
+        size_t size)
+{
+    if(size == 0)
+    {
+        return;
+    }
+    switch(parser_state_)
+    {
+        case state::init:
+        {
+            block_buffer_.append(data, size);
+            break;
+        }
+        case state::headers:
+        {
+            block_buffer_.append(data, size);
+            break;
+        }
+        case state::body:
+        {
+            if(!if_file_)
+            {
+                current_content_->second.content.append(data, size);
+            }
+            else
+            {
+                boost::system::error_code ec;
+                current_file_->second.write(
+                    data, size, ec);
+            }
+            break;
+        }
+        case state::next_block:
+        {
+            next_block_buffer_.append(data, size);
+            if(next_block_buffer_.size() >= body_.boundary_.size() + 2)
+            {
+                if(next_block_buffer_.substr(0, 2 + body_.boundary_.size())
+                        == "--" + body_.boundary_)
+                {
+                    parser_state_ = state::init;
+                }
+                else
+                {
+                    parser_state_ = state::body;
+                }
+                handle_data(next_block_buffer_.data(), next_block_buffer_.size());
+                next_block_buffer_.clear();
+            }
+            break;
+        }
+    }
+}
+
+template<class File>
+void basic_multipart_form_body<File>::reader::handle_crlf()
+{
+    switch(parser_state_)
+    {
+        case state::init:
+        {
+            if(block_buffer_ == "--" + body_.boundary_)
+            {
+                block_buffer_.clear();
+                parser_state_ = state::headers;
+            }
+            else if(block_buffer_ != "--" + body_.boundary_ + "--")
+            {
+                //TODO err
+            }
+            break;
+        }
+        case state::headers:
+        {
+            if(!content_disposition_parsed_)
+            {
+                parse_content_disposition();
+                content_disposition_parsed_ = true;
+            }
+            if(block_buffer_.empty())
+            {
+                content_disposition_parsed_ = false;
+                parser_state_ = state::body;
+            }
+            block_buffer_.clear();
+            break;
+        }
+        case state::body:
+        {   
+            parser_state_ = state::next_block;
+            break;
+        }
+        case state::next_block:
+        {
+            break;
+        }
+    }
+}
+
+template<class File>
+void basic_multipart_form_body<File>::reader::parse_content_disposition()
+{
+    static boost::regex r(R"rx(([^;=]+)(?:="([^"]+)")?(?:$|(?:; )))rx");
+    auto start = block_buffer_.cbegin() + std::string("Content-Disposition: ").size();
+    auto end = block_buffer_.cend();
+    boost::match_results<std::string::const_iterator> what;
+    boost::match_flag_type flags = boost::match_default;
+    std::string name;
+    std::string filename;
+    while(regex_search(start, end, what, r, flags))
+    {
+
+        if(what[1] == "name")
+        {
+            name = what[2];
+        }
+        if(what[1] == "filename")
+        {
+            filename = what[2];
+        }
+
+        start = what[0].second;
+        // update flags: 
+        flags |= boost::match_prev_avail;
+        flags |= boost::match_not_bob;
+    }
+    if(filename.empty())
+    {
+        current_content_ = body_.values_.emplace(
+                std::piecewise_construct,
+                std::make_tuple(name),
+                std::make_tuple(false, ""));
+        if_file_ = false;
+    }
+    else
+    {
+        current_content_ = body_.values_.emplace(
+                std::piecewise_construct,
+                std::make_tuple(name),
+                std::make_tuple(true, filename));
+        current_file_ = body_.files_.emplace(
+                std::piecewise_construct,
+                std::make_tuple(filename),
+                std::make_tuple());
+        boost::beast::error_code ec;
+        current_file_->second.open(
+                (body_.dir_ / filename).c_str(),
+                boost::beast::file_mode::write,
+                ec);
+        if_file_ = true;
+    }
 }
 
 // Called after writing is done when there's no error.

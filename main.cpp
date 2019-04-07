@@ -92,6 +92,10 @@ int main(int argc, char* argv[])
                                 http::request<multipart_form_body>&& req,
                                 http_session::queue& queue)
                             {
+                                for(auto& [key, value] : req.body().get_values())
+                                {
+                                    std::cout << key << " : " << value.content << std::endl;
+                                }
                                 http::response<http::empty_body> res{
                                     http::status::ok,
                                     req.version()};
