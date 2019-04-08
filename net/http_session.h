@@ -9,14 +9,15 @@
 
 #include "fail.h"
 
-class web_app;
-
 namespace beast = boost::beast;                 // from <boost/beast.hpp>
 namespace http = beast::http;                   // from <boost/beast/http.hpp>
 namespace net = boost::asio;                    // from <boost/asio.hpp>
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 
-class http_session : public std::enable_shared_from_this<http_session>
+class http_handler_interface;
+
+class http_session
+    : public std::enable_shared_from_this<http_session>
 {
     class http_session_queue
     {
@@ -79,8 +80,7 @@ class http_session : public std::enable_shared_from_this<http_session>
                 {
                 }
 
-                void
-                operator()()
+                void operator()()
                 {
                     http::async_write(
                         self_.socket_,
@@ -196,7 +196,7 @@ class http_session : public std::enable_shared_from_this<http_session>
         net::io_context::executor_type> strand_;
     net::steady_timer timer_;
     beast::flat_buffer buffer_;
-    std::shared_ptr<web_app const> app_;
+    std::shared_ptr<http_handler_interface const> app_;
     http_session_queue queue_;
     http_request_reader request_reader_;
     friend class http_session_queue;
@@ -207,7 +207,7 @@ public:
     // Take ownership of the socket
     explicit http_session(
         tcp::socket socket,
-        const std::shared_ptr<web_app const>& app);
+        const std::shared_ptr<http_handler_interface const>& app);
 
     // Start the asynchronous operation
     void run();

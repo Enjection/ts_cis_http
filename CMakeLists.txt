@@ -14,13 +14,12 @@ set(${PROJECT_NAME}_SRC
     net/basic_websocket_session.cpp
     net/queued_websocket_session.cpp
     net/socket_util.cpp
-    net/basic_multipart_form_body.cpp
-    web_app.cpp
+    http_handlers_chain.cpp
     cookie_parser.cpp
     auth_manager.cpp
     response.cpp
-    publisher.cpp
     file_handler.cpp
+    multipart_form_handler.cpp
     file_util.cpp
     request_util.cpp
     cis_util.cpp

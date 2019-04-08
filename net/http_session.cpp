@@ -3,13 +3,13 @@
 #include <chrono>
 
 #include "fail.h"
-#include "web_app.h"
+#include "http_handler_interface.h"
 
 namespace websocket = beast::websocket;         // from <boost/beast/websocket.hpp>
 
 http_session::http_session(
     tcp::socket socket,
-    const std::shared_ptr<web_app const>& app)
+    const std::shared_ptr<http_handler_interface const>& app)
     : socket_(std::move(socket))
     , strand_(socket_.get_executor())
     , timer_(socket_.get_executor().context(),

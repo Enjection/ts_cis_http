@@ -1,33 +1,32 @@
-#include "web_app.h"
+#include "http_handlers_chain.h"
 
 #include "net/listener.h"
 #include "generic_error.h"
 
-web_app::web_app(boost::asio::io_context& ioc)
-    : ioc_(ioc)
+http_handlers_chain::http_handlers_chain()
 {}
 
-void web_app::append_handler(const handler_t& handler)
+void http_handlers_chain::append_handler(const handler_t& handler)
 {
     handlers_.push_back(handler);
 }
 
-void web_app::append_ws_handler(const ws_handler_t& handler)
+void http_handlers_chain::append_ws_handler(const ws_handler_t& handler)
 {
     ws_handlers_.push_back(handler);
 }
 
-void web_app::set_error_handler(const handler_t& handler)
+void http_handlers_chain::set_error_handler(const handler_t& handler)
 {
     error_handler_ = handler;
 }
 
-void web_app::set_ws_error_handler(const ws_handler_t& handler)
+void http_handlers_chain::set_ws_error_handler(const ws_handler_t& handler)
 {
     ws_error_handler_ = handler;
 }
 
-void web_app::listen(const tcp::endpoint& endpoint)
+void http_handlers_chain::listen(boost::asio::io_context& ioc, const tcp::endpoint& endpoint)
 {
     auto accept_handler = 
     [self = shared_from_this()](tcp::socket&& socket){
@@ -36,7 +35,7 @@ void web_app::listen(const tcp::endpoint& endpoint)
             self)->run();
     };
     auto l = std::make_shared<listener>(
-        ioc_,
+        ioc,
         accept_handler);
     beast::error_code ec;
     l->listen(endpoint, ec);
@@ -47,7 +46,7 @@ void web_app::listen(const tcp::endpoint& endpoint)
     l->run();
 }
 
-void web_app::handle_header(
+void http_handlers_chain::handle_header(
             request_header_t& req,
             http_session::request_reader& reader,
             http_session::queue& queue) const
@@ -67,42 +66,9 @@ void web_app::handle_header(
                 return;
         };
     }
-    /*
-    std::function<void(
-                    http::request<http::empty_body>&&,
-                    http_session::queue&)> cb = std::bind(
-                &web_app::handle,
-                shared_from_this(),
-                std::placeholders::_1,
-                std::placeholders::_2);
-    reader.async_read_body(cb);
-    */
 }
 
-void web_app::handle(
-            http::request<http::empty_body>&& req,
-            http_session::queue& queue) const
-{
-    /*
-    context_t ctx{};
-    for(auto& handler : handlers_)
-    {
-        auto result = handler(req, queue, ctx);
-        switch(result)
-        {
-            case handle_result::next:
-                break;
-            case handle_result::done:
-                return;
-            case handle_result::error:
-                error_handler_(req, queue, ctx);
-                return;
-        };
-    }
-    */
-}
-
-void web_app::handle_upgrade(
+void http_handlers_chain::handle_upgrade(
         tcp::socket&& socket,
         request_header_t&& req) const
 {

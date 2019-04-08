@@ -10,7 +10,6 @@
 #include "init.h"
 #include "dirs.h"
 #include "request_context.h"
-#include "web_app.h"
 // Business logic
 #include "auth_manager.h"
 #include "rights_manager.h"
@@ -20,13 +19,12 @@
 #include "cookie_parser.h"
 #include "file_handler.h"
 // HTTP handlers
+#include "http_handlers_chain.h"
+#include "multipart_form_handler.h"
 #include "http_handlers.h"
 // WebSocket handlers
 #include "websocket_event_dispatcher.h"
 #include "websocket_event_handlers.h"
-
-//FIXME
-#include "net/basic_multipart_form_body.h"
 
 namespace beast = boost::beast;                 // from <boost/beast.hpp>
 namespace net = boost::asio;                    // from <boost/asio.hpp>
@@ -49,11 +47,12 @@ int main(int argc, char* argv[])
     net::io_context ioc{};
    
     // Configure and run public http interface
-    auto app = std::make_shared<web_app>(ioc);
+    auto app = std::make_shared<http_handlers_chain>();
     
     auto authentication_handler = std::make_shared<auth_manager>();
     auto authorization_handler = std::make_shared<rights_manager>();
     auto files = std::make_shared<file_handler>(doc_root);
+    auto form_handler = std::make_shared<multipart_form_handler>();
     auto projects = std::make_shared<project_list>(ioc);
     projects->run();
     auto public_router = std::make_shared<http_router>();
@@ -61,57 +60,11 @@ int main(int argc, char* argv[])
     index_route.append_handler(
             std::bind(&file_handler::single_file, files, _1, _2, _3, _4, "/index.html"));
     auto& upload_route = public_router->add_route("/upload/(.+)");
-    upload_route.append_handler([](
-        http::request<http::empty_body>& req,
-        http_session::request_reader& reader,
-        http_session::queue& queue,
-        request_context& ctx)
-            {
-                using multipart_form_body 
-                    = basic_multipart_form_body<boost::beast::file>;
-                if(req.method() == http::verb::post
-                        && req[http::field::content_type].find("multipart/form-data") == 0)
-                {
-                    std::string boundary;
-                    auto boundary_begin = req[http::field::content_type].find("=");
-                    if(boundary_begin != req[http::field::content_type].npos)
-                    {
-                        boundary = req[http::field::content_type].substr(
-                                boundary_begin + 1,
-                                req[http::field::content_type].size());
-                    }
-                    reader.async_read_body<multipart_form_body>(
-                            [&boundary](http::request<multipart_form_body>& req)
-                            {
-                                beast::error_code ec;
-                                req.body().open("/tmp/mfb_test", beast::file_mode::write, ec);
-                                req.body().set_boundary(boundary);
-                                req.body().set_tmp_dir("/home/mokinia/workspace/save_dir", ec);
-                            },
-                            [ctx](
-                                http::request<multipart_form_body>&& req,
-                                http_session::queue& queue)
-                            {
-                                for(auto& [key, value] : req.body().get_values())
-                                {
-                                    std::cout << key << " : " << value.content << std::endl;
-                                }
-                                http::response<http::empty_body> res{
-                                    http::status::ok,
-                                    req.version()};
-                                    res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-                                    res.set(http::field::content_type, "text/html");
-                                    res.keep_alive(req.keep_alive());
-                                queue.send(std::move(res));
-                            });
-                }
-                else
-                {
-                    queue.send(response::not_found(std::move(req)));
-                    reader.done();
-                }
-                return handle_result::done;
-            });
+    upload_route.append_handler(
+            std::bind(&multipart_form_handler::operator(),
+                      form_handler,
+                      _1, _2, _3, _4,
+                      db_path + "/upload"));
     public_router->add_catch_route()
         .append_handler(
                 std::bind(&file_handler::operator(), files, _1, _2, _3, _4));
@@ -184,10 +137,10 @@ int main(int argc, char* argv[])
                 &websocket_router::operator(),
                 ws_router,
                 _1, _2, _3));
-    app->listen(tcp::endpoint{address, port});
+    app->listen(ioc, tcp::endpoint{address, port});
 
     // Configure and run cis http interface
-    auto cis_app = std::make_shared<web_app>(ioc);
+    auto cis_app = std::make_shared<http_handlers_chain>();
     auto cis_router = std::make_shared<http_router>();
     cis_app->append_handler(
             std::bind(
@@ -200,7 +153,7 @@ int main(int argc, char* argv[])
                 &handle_update_projects,
                 projects,
                 _1, _2, _3, _4));
-    cis_app->listen(tcp::endpoint{cis_address, cis_port});
+    cis_app->listen(ioc, tcp::endpoint{cis_address, cis_port});
 
     // Capture SIGINT and SIGTERM to perform a clean shutdown
     net::signal_set signals(ioc, SIGINT, SIGTERM);

@@ -5,12 +5,13 @@
 
 #include <boost/asio.hpp>
 
-#include "net/http_session.h"
+#include "net/http_handler_interface.h"
 #include "request_context.h"
 #include "handle_result.h"
 
-class web_app
-    : public std::enable_shared_from_this<web_app>
+class http_handlers_chain
+    : public std::enable_shared_from_this<http_handlers_chain>
+    , public http_handler_interface
 {
 public:
     using request_header_t = http::request<http::empty_body>;
@@ -28,18 +29,17 @@ public:
                 tcp::socket&,
                 context_t&)>;
 private:
-    boost::asio::io_context& ioc_;
     std::vector<handler_t> handlers_;
     std::vector<ws_handler_t> ws_handlers_;
     handler_t error_handler_;
     ws_handler_t ws_error_handler_;
 public:
-    web_app(boost::asio::io_context& ioc);
+    http_handlers_chain();
     void append_handler(const handler_t& handler);
     void append_ws_handler(const ws_handler_t& handler);
     void set_error_handler(const handler_t& handler);
     void set_ws_error_handler(const ws_handler_t& handler);
-    void listen(const tcp::endpoint& endpoint);
+    void listen(boost::asio::io_context& ioc, const tcp::endpoint& endpoint);
     void handle_header(
             request_header_t& req,
             http_session::request_reader& reader,
