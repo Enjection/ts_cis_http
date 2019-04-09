@@ -20,7 +20,6 @@
 #include "file_handler.h"
 // HTTP handlers
 #include "http_handlers_chain.h"
-#include "multipart_form_handler.h"
 #include "http_handlers.h"
 // WebSocket handlers
 #include "websocket_event_dispatcher.h"
@@ -59,12 +58,6 @@ int main(int argc, char* argv[])
     auto& index_route = public_router->add_route("/");
     index_route.append_handler(
             std::bind(&file_handler::single_file, files, _1, _2, _3, _4, "/index.html"));
-    auto& upload_route = public_router->add_route("/upload/(.+)");
-    upload_route.append_handler(
-            std::bind(&multipart_form_handler::operator(),
-                      form_handler,
-                      _1, _2, _3, _4,
-                      db_path + "/upload"));
     public_router->add_catch_route()
         .append_handler(
                 std::bind(&file_handler::operator(), files, _1, _2, _3, _4));
