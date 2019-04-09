@@ -1,12 +1,12 @@
 #include "multipart_form_handler.h"
 
 #include "response.h"
-#include "net/multipart_form_body.h"
+#include "beast_ext/multipart_form_body.h"
 
 handle_result multipart_form_handler::operator()(
         http::request<http::empty_body>& req,
-        http_session::request_reader& reader,
-        http_session::queue& queue,
+        net::http_session::request_reader& reader,
+        net::http_session::queue& queue,
         request_context& ctx,
         const std::string& save_dir)
 {
@@ -30,7 +30,7 @@ handle_result multipart_form_handler::operator()(
                 },
                 [ctx](
                     http::request<multipart_form_body>&& req,
-                    http_session::queue& queue)
+                    net::http_session::queue& queue)
                 {
                     for(auto& [key, value] : req.body().get_values())
                     {

@@ -9,10 +9,8 @@
 
 #include "fail.h"
 
-namespace beast = boost::beast;                 // from <boost/beast.hpp>
-namespace http = beast::http;                   // from <boost/beast/http.hpp>
-namespace net = boost::asio;                    // from <boost/asio.hpp>
-using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
+namespace net
+{
 
 class http_handler_interface;
 
@@ -64,17 +62,17 @@ class http_session
         }
 
         template<bool isRequest, class Body, class Fields>
-        void send(http::message<isRequest, Body, Fields>&& msg)
+        void send(boost::beast::http::message<isRequest, Body, Fields>&& msg)
         {
             // This holds a work item
             struct work_impl : work
             {
                 http_session& self_;
-                http::message<isRequest, Body, Fields> msg_;
+                boost::beast::http::message<isRequest, Body, Fields> msg_;
 
                 work_impl(
                     http_session& self,
-                    http::message<isRequest, Body, Fields>&& msg)
+                    boost::beast::http::message<isRequest, Body, Fields>&& msg)
                     : self_(self)
                     , msg_(std::move(msg))
                 {
@@ -82,10 +80,10 @@ class http_session
 
                 void operator()()
                 {
-                    http::async_write(
+                    boost::beast::http::async_write(
                         self_.socket_,
                         msg_,
-                        net::bind_executor(
+                        boost::asio::bind_executor(
                             self_.strand_,
                             std::bind(
                                 &http_session::on_write,
@@ -116,10 +114,10 @@ class http_session
         template <class Body>
         struct parser_wrapper_impl : parser_wrapper
         {
-            http::request_parser<Body> parser;
+            boost::beast::http::request_parser<Body> parser;
             parser_wrapper_impl() = default;
             parser_wrapper_impl(
-                    http::request_parser<http::empty_body>&& other)
+                    boost::beast::http::request_parser<boost::beast::http::empty_body>&& other)
                 : parser(std::move(other))
             {}
             const std::type_info& type_info() const
@@ -130,21 +128,21 @@ class http_session
         http_session& self_;
         std::unique_ptr<parser_wrapper> parser_;
         template<class Body>
-        http::request_parser<Body>& get_parser()
+        boost::beast::http::request_parser<Body>& get_parser()
         {
-            if(typeid(http::request_parser<Body>) != parser_->type_info())
+            if(typeid(boost::beast::http::request_parser<Body>) != parser_->type_info())
             {
                 throw std::runtime_error("Bad parser cast");
             }
             return static_cast<parser_wrapper_impl<Body>&>(*parser_).parser;
         }
-        http::request_parser<http::empty_body>& get_header_parser()
+        boost::beast::http::request_parser<boost::beast::http::empty_body>& get_header_parser()
         {
-            return get_parser<http::empty_body>();
+            return get_parser<boost::beast::http::empty_body>();
         }
         void prepare()
         {
-            parser_ = std::make_unique<parser_wrapper_impl<http::empty_body>>();
+            parser_ = std::make_unique<parser_wrapper_impl<boost::beast::http::empty_body>>();
         }
         template<class Body>
         void upgrade_parser()
@@ -159,17 +157,17 @@ class http_session
         {}
         template<class Body>
         void async_read_body(
-                std::function<void(http::request<Body>&)> prepare,    
+                std::function<void(boost::beast::http::request<Body>&)> prepare,    
                 std::function<void(
-                    http::request<Body>&&,
+                    boost::beast::http::request<Body>&&,
                     http_session_queue&)> cb)
         {
             upgrade_parser<Body>();
 
             prepare(get_parser<Body>().get());
 
-            http::async_read(self_.socket_, self_.buffer_, get_parser<Body>(),
-                    net::bind_executor(
+            boost::beast::http::async_read(self_.socket_, self_.buffer_, get_parser<Body>(),
+                    boost::asio::bind_executor(
                 self_.strand_,
                 std::bind(
                     &http_session::on_read_body<Body>,
@@ -180,22 +178,22 @@ class http_session
         }
         void done()
         {
-            http::async_read(self_.socket_, self_.buffer_, get_header_parser(),
-                    net::bind_executor(
+            boost::beast::http::async_read(self_.socket_, self_.buffer_, get_header_parser(),
+                    boost::asio::bind_executor(
                 self_.strand_,
                 std::bind(
-                    &http_session::on_read_body<http::empty_body>,
+                    &http_session::on_read_body<boost::beast::http::empty_body>,
                     self_.shared_from_this(),
                     nullptr,
                     std::placeholders::_1,
                     std::placeholders::_2)));
         }
     };
-    tcp::socket socket_;
-    net::strand<
-        net::io_context::executor_type> strand_;
-    net::steady_timer timer_;
-    beast::flat_buffer buffer_;
+    boost::asio::ip::tcp::socket socket_;
+    boost::asio::strand<
+        boost::asio::io_context::executor_type> strand_;
+    boost::asio::steady_timer timer_;
+    boost::beast::flat_buffer buffer_;
     std::shared_ptr<http_handler_interface const> app_;
     http_session_queue queue_;
     http_request_reader request_reader_;
@@ -206,7 +204,7 @@ public:
     using queue = http_session_queue;
     // Take ownership of the socket
     explicit http_session(
-        tcp::socket socket,
+        boost::asio::ip::tcp::socket socket,
         const std::shared_ptr<http_handler_interface const>& app);
 
     // Start the asynchronous operation
@@ -215,27 +213,27 @@ public:
     void do_read_header();
 
     // Called when the timer expires.
-    void on_timer(beast::error_code ec);
+    void on_timer(boost::beast::error_code ec);
 
-    void on_read_header(beast::error_code ec);
+    void on_read_header(boost::beast::error_code ec);
     
     
     template <class Body>
     void on_read_body(
             std::function<void(
-                    http::request<Body>&&,
+                    boost::beast::http::request<Body>&&,
                     http_session_queue&)> cb,
-            beast::error_code ec,
+            boost::beast::error_code ec,
             std::size_t bytes_transferred)
     {
         // Happens when the timer closes the socket
-        if(ec == net::error::operation_aborted)
+        if(ec == boost::asio::error::operation_aborted)
         {
             return;
         }
 
         // This means they closed the connection
-        if(ec == http::error::end_of_stream)
+        if(ec == boost::beast::http::error::end_of_stream)
         {
             return do_close();
         }
@@ -257,10 +255,12 @@ public:
         }
     }
     
-    void on_write(beast::error_code ec, bool close);
+    void on_write(boost::beast::error_code ec, bool close);
 
     void do_close();
 };
 
 template <>
-void http_session::http_request_reader::upgrade_parser<http::empty_body>();
+void http_session::http_request_reader::upgrade_parser<boost::beast::http::empty_body>();
+
+} // namespace net

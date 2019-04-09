@@ -27,7 +27,7 @@
 #include "websocket_event_handlers.h"
 
 namespace beast = boost::beast;                 // from <boost/beast.hpp>
-namespace net = boost::asio;                    // from <boost/asio.hpp>
+namespace asio = boost::asio;                    // from <boost/asio.hpp>
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 using namespace std::placeholders;
 
@@ -44,7 +44,7 @@ int main(int argc, char* argv[])
     cis::set_root_dir(cis_root.c_str());
     db::set_root_dir(db_path.c_str());
     // The io_context is required for all I/O
-    net::io_context ioc{};
+    asio::io_context ioc{};
    
     // Configure and run public http interface
     auto app = std::make_shared<http_handlers_chain>();
@@ -110,7 +110,7 @@ int main(int argc, char* argv[])
                 tcp::socket& socket,
                 request_context& ctx)
             {
-                queued_websocket_session::accept_handler(
+            net::queued_websocket_session::accept_handler(
                         std::move(socket),
                         std::move(req),
                         std::bind(
@@ -156,7 +156,7 @@ int main(int argc, char* argv[])
     cis_app->listen(ioc, tcp::endpoint{cis_address, cis_port});
 
     // Capture SIGINT and SIGTERM to perform a clean shutdown
-    net::signal_set signals(ioc, SIGINT, SIGTERM);
+    asio::signal_set signals(ioc, SIGINT, SIGTERM);
     signals.async_wait(
         [&](beast::error_code const&, int)
         {

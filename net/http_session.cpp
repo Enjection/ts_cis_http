@@ -5,10 +5,11 @@
 #include "fail.h"
 #include "http_handler_interface.h"
 
-namespace websocket = beast::websocket;         // from <boost/beast/websocket.hpp>
+namespace net
+{
 
 http_session::http_session(
-    tcp::socket socket,
+    boost::asio::ip::tcp::socket socket,
     const std::shared_ptr<http_handler_interface const>& app)
     : socket_(std::move(socket))
     , strand_(socket_.get_executor())
@@ -25,8 +26,8 @@ void http_session::run()
     // Make sure we run on the strand
     if(!strand_.running_in_this_thread())
     {
-        return net::post(
-            net::bind_executor(
+        return boost::asio::post(
+            boost::asio::bind_executor(
                 strand_,
                 std::bind(
                     &http_session::run,
@@ -50,9 +51,9 @@ void http_session::do_read_header()
     request_reader_.prepare(); 
 
     // Read a request
-    http::async_read_header(socket_, buffer_,
+    boost::beast::http::async_read_header(socket_, buffer_,
         request_reader_.get_header_parser(),
-        net::bind_executor(
+        boost::asio::bind_executor(
             strand_,
             std::bind(
                 &http_session::on_read_header,
@@ -60,9 +61,9 @@ void http_session::do_read_header()
                 std::placeholders::_1)));
 }
 
-void http_session::on_timer(beast::error_code ec)
+void http_session::on_timer(boost::beast::error_code ec)
 {
-    if(ec && ec != net::error::operation_aborted)
+    if(ec && ec != boost::asio::error::operation_aborted)
     {
         return fail(ec, "timer");
     }
@@ -77,15 +78,15 @@ void http_session::on_timer(beast::error_code ec)
     if(timer_.expiry() <= std::chrono::steady_clock::now())
     {
         // Closing the socket cancels all outstanding operations. They
-        // will complete with net::error::operation_aborted
-        socket_.shutdown(tcp::socket::shutdown_both, ec);
+        // will complete with boost::asio::error::operation_aborted
+        socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
         socket_.close(ec);
         return;
     }
 
     // Wait on the timer
     timer_.async_wait(
-        net::bind_executor(
+        boost::asio::bind_executor(
             strand_,
             std::bind(
                 &http_session::on_timer,
@@ -93,16 +94,16 @@ void http_session::on_timer(beast::error_code ec)
                 std::placeholders::_1)));
 }
 
-void http_session::on_read_header(beast::error_code ec)
+void http_session::on_read_header(boost::beast::error_code ec)
 {
     // Happens when the timer closes the socket
-    if(ec == net::error::operation_aborted)
+    if(ec == boost::asio::error::operation_aborted)
     {
         return;
     }
 
     // This means they closed the connection
-    if(ec == http::error::end_of_stream)
+    if(ec == boost::beast::http::error::end_of_stream)
     {
         return do_close();
     }
@@ -113,7 +114,7 @@ void http_session::on_read_header(beast::error_code ec)
     }
 
     // See if it is a WebSocket Upgrade
-    if(websocket::is_upgrade(request_reader_.get_header_parser().get()))
+    if(boost::beast::websocket::is_upgrade(request_reader_.get_header_parser().get()))
     {
         // Make timer expire immediately, by setting expiry to time_point::min we can detect
         // the upgrade to websocket in the timer handler
@@ -132,10 +133,10 @@ void http_session::on_read_header(beast::error_code ec)
             queue_);
 }
 
-void http_session::on_write(beast::error_code ec, bool close)
+void http_session::on_write(boost::beast::error_code ec, bool close)
 {
     // Happens when the timer closes the socket
-    if(ec == net::error::operation_aborted)
+    if(ec == boost::asio::error::operation_aborted)
     {
         return;
     }
@@ -163,12 +164,14 @@ void http_session::on_write(beast::error_code ec, bool close)
 void http_session::do_close()
 {
     // Send a TCP shutdown
-    beast::error_code ec;
-    socket_.shutdown(tcp::socket::shutdown_send, ec);
+    boost::beast::error_code ec;
+    socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_send, ec);
 
     // At this point the connection is closed gracefully
 }
 
 template <>
-void http_session::http_request_reader::upgrade_parser<http::empty_body>()
+void http_session::http_request_reader::upgrade_parser<boost::beast::http::empty_body>()
 {}
+
+} // namespace net

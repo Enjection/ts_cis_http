@@ -16,7 +16,7 @@
 
 namespace beast = boost::beast;                 // from <boost/beast.hpp>
 namespace http = beast::http;                   // from <boost/beast/http.hpp>
-namespace net = boost::asio;                    // from <boost/asio.hpp>
+namespace asio = boost::asio;                    // from <boost/asio.hpp>
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 
 template <class BodyType, typename... Args>
@@ -85,5 +85,9 @@ private:
     std::vector<std::pair<boost::regex, std::unique_ptr<handlers_chain>>> routes_;
 };
 
-using http_router = router<http::empty_body, http_session::request_reader&, http_session::queue&, request_context&>;
+using http_router = router<
+    http::empty_body,
+    net::http_session::request_reader&,
+    net::http_session::queue&,
+    request_context&>;
 using websocket_router = router<http::empty_body, tcp::socket&, request_context&>;

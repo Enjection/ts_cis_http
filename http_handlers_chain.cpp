@@ -30,11 +30,11 @@ void http_handlers_chain::listen(boost::asio::io_context& ioc, const tcp::endpoi
 {
     auto accept_handler = 
     [self = shared_from_this()](tcp::socket&& socket){
-        std::make_shared<http_session>(
+        std::make_shared<net::http_session>(
             std::move(socket),
             self)->run();
     };
-    auto l = std::make_shared<listener>(
+    auto l = std::make_shared<net::listener>(
         ioc,
         accept_handler);
     beast::error_code ec;
@@ -48,8 +48,8 @@ void http_handlers_chain::listen(boost::asio::io_context& ioc, const tcp::endpoi
 
 void http_handlers_chain::handle_header(
             request_header_t& req,
-            http_session::request_reader& reader,
-            http_session::queue& queue) const
+            net::http_session::request_reader& reader,
+            net::http_session::queue& queue) const
 {
     context_t ctx{};
     for(auto& handler : handlers_)

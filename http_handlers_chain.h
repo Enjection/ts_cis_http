@@ -9,18 +9,20 @@
 #include "request_context.h"
 #include "handle_result.h"
 
+using tcp = boost::asio::ip::tcp;
+
 class http_handlers_chain
     : public std::enable_shared_from_this<http_handlers_chain>
-    , public http_handler_interface
+    , public net::http_handler_interface
 {
 public:
-    using request_header_t = http::request<http::empty_body>;
-    using queue_t = http_session::queue;
+    using request_header_t = boost::beast::http::request<boost::beast::http::empty_body>;
+    using queue_t = net::http_session::queue;
     using context_t = request_context;
     using handler_t = 
         std::function<handle_result(
             request_header_t&,
-            http_session::request_reader&,
+            net::http_session::request_reader&,
             queue_t&,
             context_t&)>;
     using ws_handler_t = 
@@ -42,11 +44,8 @@ public:
     void listen(boost::asio::io_context& ioc, const tcp::endpoint& endpoint);
     void handle_header(
             request_header_t& req,
-            http_session::request_reader& reader,
-            http_session::queue& queue) const;
-    void handle(
-            http::request<http::empty_body>&& req,
-            http_session::queue& queue) const;
+            net::http_session::request_reader& reader,
+            net::http_session::queue& queue) const;
     void handle_upgrade(
             tcp::socket&& socket,
             request_header_t&& req) const;
