@@ -63,7 +63,7 @@ std::optional<std::string> ws_handle_set_user_permissions(
         rapidjson::Value& response_data,
         rapidjson::Document::AllocatorType& allocator);
 
-std::optional<std::string> ws_handle_make_admin(
+std::optional<std::string> ws_handle_change_group(
         const std::shared_ptr<auth_manager>& authentication_handler,
         const std::shared_ptr<rights_manager>& rights,
         request_context& ctx,
@@ -96,7 +96,7 @@ std::optional<std::string> ws_handle_list_projects(
         rapidjson::Value& response_data,
         rapidjson::Document::AllocatorType& allocator);
 
-std::optional<std::string> ws_handle_list_jobs(
+std::optional<std::string> ws_handle_get_project_info(
         const std::shared_ptr<project_list>& projects,
         const std::shared_ptr<rights_manager>& rights,
         request_context& ctx,

@@ -59,6 +59,14 @@ std::optional<std::string> ws_handle_authenticate(
                     token.length(),
                     allocator),
                 allocator);
+        response_data.AddMember(
+                "group",
+                rapidjson::Value().SetString(
+                    authentication_handler->is_admin(ctx.username)
+                    ? "admin"
+                    : "user",
+                    allocator),
+                allocator);
         return std::nullopt;
     }
     else
@@ -86,6 +94,14 @@ std::optional<std::string> ws_handle_token(
     {
         ctx.username = username;
         ctx.active_token = token.value();
+        response_data.AddMember(
+                "group",
+                rapidjson::Value().SetString(
+                    authentication_handler->is_admin(ctx.username)
+                    ? "admin"
+                    : "user",
+                    allocator),
+                allocator);
         return std::nullopt;
     }
     else
@@ -153,7 +169,7 @@ std::optional<std::string> ws_handle_list_projects(
     return std::nullopt;
 }
 
-std::optional<std::string> ws_handle_list_jobs(
+std::optional<std::string> ws_handle_get_project_info(
         const std::shared_ptr<project_list>& projects,
         const std::shared_ptr<rights_manager>& rights,
         request_context& ctx,
@@ -174,8 +190,29 @@ std::optional<std::string> ws_handle_list_jobs(
     if(project_it != projects->projects.cend() && permitted)
     {
         rapidjson::Value array;
+        rapidjson::Value array_value;
         array.SetArray();
-        for(auto& [job, builds] : project_it->second)
+        for(auto& file : project_it->second.files)
+        {
+            array_value.SetObject();
+            array_value.AddMember(
+                    "name",
+                    rapidjson::Value().SetString(
+                        file.c_str(),
+                        file.length(),
+                        allocator),
+                    allocator);
+            array_value.AddMember(
+                    "link",
+                    rapidjson::Value().SetString(""),
+                    allocator);
+            array.PushBack(
+                    array_value,
+                    allocator);
+        }
+        response_data.AddMember("files", array, allocator);
+        array.SetArray();
+        for(auto& [job, builds] : project_it->second.jobs)
         {
             array.PushBack(
                     rapidjson::Value().CopyFrom(
@@ -217,8 +254,8 @@ std::optional<std::string> ws_handle_get_job_info(
 
     if(project_it != projects->projects.cend() && permitted)
     {
-        auto job_it = project_it->second.find(job_name.value());
-        if(job_it != project_it->second.cend())
+        auto job_it = project_it->second.jobs.find(job_name.value());
+        if(job_it != project_it->second.jobs.cend())
         {
             rapidjson::Value array;
             rapidjson::Value array_value;
@@ -314,8 +351,8 @@ std::optional<std::string> ws_handle_run_job(
 
     if(project_it != projects->projects.cend() && permitted)
     {
-        auto job_it = project_it->second.find(job_name.value());
-        if(job_it != project_it->second.cend())
+        auto job_it = project_it->second.jobs.find(job_name.value());
+        if(job_it != project_it->second.jobs.cend())
         {
             run_job(io_ctx, project_name.value(), job_name.value());
             return std::nullopt;
@@ -396,8 +433,12 @@ std::optional<std::string> ws_handle_list_users(
                         allocator),
                     allocator);
             array_value.AddMember(
-                    "admin",
-                    rapidjson::Value().SetBool(user.admin),
+                    "group",
+                    rapidjson::Value().SetString(
+                        user.admin
+                        ? "admin"
+                        : "user",
+                        allocator),
                     allocator);
             array_value.AddMember(
                     "disabled",
@@ -446,26 +487,31 @@ std::optional<std::string> ws_handle_get_user_permissions(
     {
         auto& permissions = rights->get_permissions(name.value());
         rapidjson::Value array;
-        rapidjson::Value key;
-        rapidjson::Value value;
-        array.SetObject();
+        rapidjson::Value array_value;
+        array.SetArray();
         for(auto [project, rights] : permissions)
         {
-            key.SetString(project.c_str(), project.length(), allocator);
-            value.SetObject();
-            value.AddMember(
+            array_value.SetObject();
+            array_value.AddMember(
+                    "name",
+                    rapidjson::Value().SetString(
+                        project.c_str(),
+                        project.length(),
+                        allocator),
+                    allocator);
+            array_value.AddMember(
                     "read",
                     rapidjson::Value().SetBool(rights.read),
                     allocator);
-            value.AddMember(
+            array_value.AddMember(
                     "write",
                     rapidjson::Value().SetBool(rights.write),
                     allocator);
-            value.AddMember(
+            array_value.AddMember(
                     "execute",
                     rapidjson::Value().SetBool(rights.execute),
                     allocator);
-            array.AddMember(key, value, allocator);
+            array.PushBack(array_value, allocator);
         }
         response_data.AddMember("permissions", array, allocator);
         return std::nullopt;
@@ -481,7 +527,7 @@ std::optional<std::string> ws_handle_set_user_permissions(
         rapidjson::Document::AllocatorType& allocator)
 {
     auto name = get_string(request_data, "name");
-    if(!name || !request_data.HasMember("permissions") || !request_data["permissions"].IsObject())
+    if(!name || !request_data.HasMember("permissions") || !request_data["permissions"].IsArray())
     {
         return "Invalid JSON.";
     }
@@ -491,22 +537,18 @@ std::optional<std::string> ws_handle_set_user_permissions(
     
     if(permitted)
     {
-        for(auto& member : request_data["permissions"].GetObject())
+        for(auto& array_value : request_data["permissions"].GetArray())
         {
-            auto project_name = get_string(member.name, "project");
-            if(!member.value.IsObject())
-            {
-                return "Invalid JSON.";
-            }
-            auto read = get_bool(member.value, "read");
-            auto write = get_bool(member.value, "write");
-            auto execute = get_bool(member.value, "execute");
+            auto project_name = get_string(array_value, "name");
+            auto read = get_bool(array_value, "read");
+            auto write = get_bool(array_value, "write");
+            auto execute = get_bool(array_value, "execute");
             if(!project_name || !read || !write || !execute)
             {
                 return "Invalid JSON.";
             }
             rights->set_user_project_permissions(
-                    ctx.username,
+                    name.value(),
                     project_name.value(),
                     {read.value(), write.value(), execute.value()});
         }
@@ -515,7 +557,7 @@ std::optional<std::string> ws_handle_set_user_permissions(
     return "Action not permitted";
 }
 
-std::optional<std::string> ws_handle_make_admin(
+std::optional<std::string> ws_handle_change_group(
         const std::shared_ptr<auth_manager>& authentication_handler,
         const std::shared_ptr<rights_manager>& rights,
         request_context& ctx,
@@ -524,8 +566,8 @@ std::optional<std::string> ws_handle_make_admin(
         rapidjson::Document::AllocatorType& allocator)
 {
     auto name = get_string(request_data, "name");
-    auto state = get_bool(request_data, "state");
-    if(!name || !state)
+    auto group = get_string(request_data, "admin");
+    if(!name || !group)
     {
         return "Invalid JSON.";
     }
@@ -535,11 +577,25 @@ std::optional<std::string> ws_handle_make_admin(
         return "Invalid username.";
     }
 
+    bool state;
+    if(group.value() == "admin")
+    {
+        state = true;
+    }
+    else if(group.value() == "user")
+    {
+        state = false;
+    }
+    else
+    {
+        return "Invalid group name.";
+    }
+
     auto perm = rights->check_user_right(ctx.username, "users.make_admin");
     auto permitted = perm.has_value() ? perm.value() : false;
     if(permitted)
     {
-        authentication_handler->make_admin(name.value(), state.value());
+        authentication_handler->make_admin(name.value(), state);
         return std::nullopt;
     }
     return "Action not permitted.";
@@ -635,14 +691,14 @@ std::optional<std::string> ws_handle_rename_job(
 
     if(project_it != projects->projects.cend() && permitted)
     {
-        if(auto it = project_it->second.find(new_job_name.value());
-                it != project_it->second.cend())
+        if(auto it = project_it->second.jobs.find(new_job_name.value());
+                it != project_it->second.jobs.cend())
         {
             return "Project with this name already exists.";
         }
 
-        auto job_it = project_it->second.find(job_name.value());
-        if(job_it != project_it->second.cend())
+        auto job_it = project_it->second.jobs.find(job_name.value());
+        if(job_it != project_it->second.jobs.cend())
         {
             std::error_code ec;
             rename_job(project_name.value(), job_name.value(), new_job_name.value(), ec);
@@ -689,8 +745,8 @@ std::optional<std::string> ws_handle_get_build_info(
     auto permitted = perm.has_value() ? perm.value().write : true;
     if(project_it != projects->projects.cend() && permitted)
     {   
-        auto job_it = project_it->second.find(job_name.value());
-        if(job_it != project_it->second.cend())
+        auto job_it = project_it->second.jobs.find(job_name.value());
+        if(job_it != project_it->second.jobs.cend())
         {
             auto build_it = job_it->second.builds.find(build_name.value());
             if(build_it != job_it->second.builds.cend())
