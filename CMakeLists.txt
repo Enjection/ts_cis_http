@@ -14,23 +14,30 @@ set(${PROJECT_NAME}_SRC
     net/basic_websocket_session.cpp
     net/queued_websocket_session.cpp
     net/socket_util.cpp
-    web_app.cpp
-    cookie_parser.cpp
+    cis/dirs.cpp
+    cis/job.cpp
+    cis/project_list.cpp
+    exceptions/base_cis_srv_exception.cpp
+    exceptions/generic_error.cpp
+    exceptions/load_config_error.cpp
+    http/handlers_chain.cpp
+    http/error_handler.cpp
+    http/cookie_parser.cpp
+    http/response.cpp
+    http/file_handler.cpp
+    http/multipart_form_handler.cpp
+    http/request_util.cpp
+    http/common_handlers.cpp
+    websocket/event_dispatcher.cpp
+    websocket/event_handlers.cpp
+    websocket/base_event_handler.cpp
     auth_manager.cpp
-    response.cpp
-    publisher.cpp
-    file_handler.cpp
     file_util.cpp
-    request_util.cpp
-    cis_util.cpp
     child_process.cpp
-    dirs.cpp
+    db_dirs.cpp
     init.cpp
     rights_manager.cpp
-    http_handlers.cpp
-    websocket_event_dispatcher.cpp
-    websocket_event_handlers.cpp
-    base_websocket_event_handler.cpp)
+    application.cpp)
 
 add_compile_definitions(BOOST_BEAST_USE_STD_STRING_VIEW)
 add_executable(${PROJECT_NAME} main.cpp ${${PROJECT_NAME}_SRC})
