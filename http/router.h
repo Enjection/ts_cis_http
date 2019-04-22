@@ -53,10 +53,10 @@ public:
         //
         return handle_result::error;
     }
-    template <class ParseString, class... RouteArgs>
+    template <class ParseString, class... RouteArgs, class... FnArgs>
     void add_route(
             url::url_chain<ParseString, RouteArgs...> url,
-            std::function<handle_result(request_t&, context_t&, Args..., RouteArgs...)> cb)
+            std::function<handle_result(request_t&, context_t&, Args..., FnArgs...)> cb)
     {
         using namespace std::string_literals;
         ParseString s;
@@ -67,14 +67,14 @@ public:
                         request_t&,
                         context_t&,
                         Args...,
-                        RouteArgs...)> fn;
+                        FnArgs...)> fn;
         public:
             handler_impl(
                     std::function<handle_result(
                         request_t&,
                         context_t&,
                         Args...,
-                        RouteArgs...)> fn_arg)
+                        FnArgs...)> fn_arg)
                 : fn(fn_arg)
             {}
 

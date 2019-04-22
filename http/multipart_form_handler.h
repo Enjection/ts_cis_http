@@ -15,10 +15,11 @@ class multipart_form_handler
 public:
     handle_result operator()(
             beast::http::request<beast::http::empty_body>& req,
+            request_context& ctx,
             net::http_session::request_reader& reader,
             net::http_session::queue& queue,
-            request_context& ctx,
-            const std::string& save_dir);
+            const std::string& project,
+            const std::string& dir);
 };
 
 } // namespace http

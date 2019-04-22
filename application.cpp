@@ -19,6 +19,7 @@ application::application(const init_params& params)
     , app_(std::make_shared<http::handlers_chain>())
     , cis_app_(std::make_shared<http::handlers_chain>())
     , files_(std::make_shared<http::file_handler>(params.doc_root))
+    , upload_handler_(std::make_shared<http::multipart_form_handler>())
     , projects_(std::make_shared<cis::project_list>(ioc_, db_))
     , auth_manager_(std::make_shared<auth_manager>(db_))
     , rights_manager_(std::make_shared<rights_manager>(db_))
@@ -78,8 +79,8 @@ std::shared_ptr<http_router> application::make_public_http_router()
     auto router = std::make_shared<http_router>();
 
     std::function <http::handle_result(
-        beast::http::request<beast::http::empty_body>& req,
-        request_context& ctx,
+        beast::http::request<beast::http::empty_body>&,
+        request_context&,
         net::http_session::request_reader&,
         net::http_session::queue&)> cb = std::bind(
                 &http::file_handler::single_file,
@@ -87,6 +88,20 @@ std::shared_ptr<http_router> application::make_public_http_router()
                 _1, _2, _3, _4,
                 "/index.html");
     router->add_route(url::root(), cb);
+    
+    std::function<http::handle_result(
+        beast::http::request<beast::http::empty_body>& req,
+        request_context& ctx,
+        net::http_session::request_reader&,
+        net::http_session::queue&,
+        const std::string&,
+        const std::string&)> upload_cb = std::bind(
+            &http::multipart_form_handler::operator(),
+            upload_handler_,
+            _1, _2, _3, _4, _5, _6);
+
+    router->add_route(url::make() / CT_STRING("upload")
+                    / url::bound_string() / url::string(), upload_cb);
     
     cb = std::bind(
                     &http::file_handler::operator(),

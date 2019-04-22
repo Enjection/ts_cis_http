@@ -7,6 +7,7 @@
 #include "http/handlers_chain.h"
 #include "http/router.h"
 #include "http/file_handler.h"
+#include "http/multipart_form_handler.h"
 #include "cis/project_list.h"
 
 namespace beast = boost::beast;                 // from <boost/beast.hpp>
@@ -21,6 +22,7 @@ class application
     std::shared_ptr<http::handlers_chain> app_;
     std::shared_ptr<http::handlers_chain> cis_app_;
     std::shared_ptr<http::file_handler> files_;
+    std::shared_ptr<http::multipart_form_handler> upload_handler_;
     std::shared_ptr<cis::project_list> projects_;
     std::shared_ptr<auth_manager> auth_manager_;
     std::shared_ptr<rights_manager> rights_manager_;
