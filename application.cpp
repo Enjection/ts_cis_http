@@ -55,6 +55,7 @@ void application::init_app()
                 &websocket_router::operator(),
                 make_ws_router(),
                 _1, _2, _3));
+
     app_->listen(ioc_, tcp::endpoint{params_.public_address, params_.public_port});
 }
 
@@ -70,6 +71,7 @@ void application::init_cis_app()
                 &http_router::operator(),
                 make_cis_http_router(),
                 _1, _2,_3, _4));
+
     cis_app_->listen(ioc_, tcp::endpoint{params_.cis_address, params_.cis_port});
 }
 
