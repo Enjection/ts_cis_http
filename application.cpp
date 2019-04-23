@@ -19,12 +19,13 @@ application::application(const init_params& params)
     , signals_(ioc_, SIGINT, SIGTERM)
     , app_(std::make_shared<http::handlers_chain>())
     , cis_app_(std::make_shared<http::handlers_chain>())
-    , files_(std::make_shared<http::file_handler>(params.doc_root))
-    , upload_handler_(std::make_shared<http::multipart_form_handler>(
-        std::filesystem::path{params.cis_root + cis::projects}))
     , projects_(std::make_shared<cis::project_list>(ioc_, db_))
     , auth_manager_(std::make_shared<auth_manager>(db_))
     , rights_manager_(std::make_shared<rights_manager>(db_))
+    , files_(std::make_shared<http::file_handler>(params.doc_root))
+    , upload_handler_(std::make_shared<http::multipart_form_handler>(
+        std::filesystem::path{params.cis_root + cis::projects},
+        rights_manager_))
 {
     signals_.async_wait(
         [&](beast::error_code const&, int)
@@ -92,14 +93,10 @@ std::shared_ptr<http_router> application::make_public_http_router()
     router->add_route(url::root(), cb);
     
     router->add_route(
-            url::make() / CT_STRING("upload")
-                / url::bound_string() / url::string(), 
-                [upload_handler = upload_handler_,
-                 rights = rights_manager_](auto&& ...args)
+            url::make() / CT_STRING("upload") / url::bound_string() / url::string(), 
+                [upload_handler = upload_handler_](auto&& ...args)
                 {
-                    return (*upload_handler)(
-                            rights,
-                            std::forward<decltype(args)>(args)...);
+                    return (*upload_handler)(std::forward<decltype(args)>(args)...);
                 });
     
     cb = std::bind(

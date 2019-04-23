@@ -21,11 +21,11 @@ class application
     asio::signal_set signals_;
     std::shared_ptr<http::handlers_chain> app_;
     std::shared_ptr<http::handlers_chain> cis_app_;
-    std::shared_ptr<http::file_handler> files_;
-    std::shared_ptr<http::multipart_form_handler> upload_handler_;
     std::shared_ptr<cis::project_list> projects_;
     std::shared_ptr<auth_manager> auth_manager_;
     std::shared_ptr<rights_manager> rights_manager_;
+    std::shared_ptr<http::file_handler> files_;
+    std::shared_ptr<http::multipart_form_handler> upload_handler_;
 
     void init_app();
     void init_cis_app();

@@ -1,19 +1,19 @@
 #include "multipart_form_handler.h"
 
 #include "response.h"
-#include "beast_ext/multipart_form_body.h"
 #include "cis/dirs.h"
 
 namespace http
 {
 
 multipart_form_handler::multipart_form_handler(
-        std::filesystem::path files_root)
+        std::filesystem::path files_root,
+        std::shared_ptr<rights_manager> rights)
     : files_root_(files_root)
+    , rights_(rights)
 {}
 
 handle_result multipart_form_handler::operator()(
-        std::shared_ptr<rights_manager> rights,
         beast::http::request<beast::http::empty_body>& req,
         request_context& ctx,
         net::http_session::request_reader& reader,
@@ -25,7 +25,7 @@ handle_result multipart_form_handler::operator()(
             && req[beast::http::field::content_type].find("multipart/form-data") == 0)
     {
         if(auto project_rights 
-                = rights->check_project_right(ctx.username, project);
+                = rights_->check_project_right(ctx.username, project);
                 !((!project_rights) 
                 || (project_rights && project_rights.value().write)))
         {
@@ -38,24 +38,33 @@ handle_result multipart_form_handler::operator()(
                 {
                     boost::beast::error_code ec;
                     req.body().set_dir(
-                            files_root_ / project / dir, ec);
+                            files_root_ / project / dir,
+                            ec);
                 },
-                [ctx](
+                [&, ctx](
                     beast::http::request<multipart_form_body>&& req,
-                    net::http_session::queue& queue)
+                    net::http_session::queue& queue) mutable
                 {
-                    beast::http::response<beast::http::empty_body> res{
-                        beast::http::status::ok,
-                        req.version()};
-                        res.set(beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-                        res.set(beast::http::field::content_type, "text/html");
-                        res.keep_alive(req.keep_alive());
-                    queue.send(std::move(res));
+                    handle_body(std::move(req), ctx, queue);
                 });
         return handle_result::done;
     }
     ctx.res_status = beast::http::status::not_found;
     return handle_result::error;
+}
+
+void multipart_form_handler::handle_body(
+        beast::http::request<multipart_form_body>&& req,
+        request_context& ctx, 
+        net::http_session::queue& queue)
+{
+    beast::http::response<beast::http::empty_body> res{
+        beast::http::status::ok,
+        req.version()};
+        res.set(beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+        res.set(beast::http::field::content_type, "text/html");
+        res.keep_alive(req.keep_alive());
+    queue.send(std::move(res));
 }
 
 } // namespace http
