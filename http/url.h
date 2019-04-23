@@ -26,7 +26,7 @@ template <>
 struct token<bound_string_tag>
 {
     using value_type = std::string;
-    using regex = meta::ct_string<'(', '[','^','/',']', '+', ')'>;
+    using regex = meta::ct_string<'(', '[','^','?','/',']', '+', ')'>;
 };
 
 template <>

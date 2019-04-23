@@ -8,6 +8,7 @@
 #include "http/url.h"
 #include "websocket/event_dispatcher.h"
 #include "websocket/event_handlers.h"
+#include "cis/dirs.h"
 
 using namespace std::placeholders;              // from <functional>
 
@@ -19,7 +20,8 @@ application::application(const init_params& params)
     , app_(std::make_shared<http::handlers_chain>())
     , cis_app_(std::make_shared<http::handlers_chain>())
     , files_(std::make_shared<http::file_handler>(params.doc_root))
-    , upload_handler_(std::make_shared<http::multipart_form_handler>())
+    , upload_handler_(std::make_shared<http::multipart_form_handler>(
+        std::filesystem::path{params.cis_root + cis::projects}))
     , projects_(std::make_shared<cis::project_list>(ioc_, db_))
     , auth_manager_(std::make_shared<auth_manager>(db_))
     , rights_manager_(std::make_shared<rights_manager>(db_))
@@ -89,19 +91,16 @@ std::shared_ptr<http_router> application::make_public_http_router()
                 "/index.html");
     router->add_route(url::root(), cb);
     
-    std::function<http::handle_result(
-        beast::http::request<beast::http::empty_body>& req,
-        request_context& ctx,
-        net::http_session::request_reader&,
-        net::http_session::queue&,
-        const std::string&,
-        const std::string&)> upload_cb = std::bind(
-            &http::multipart_form_handler::operator(),
-            upload_handler_,
-            _1, _2, _3, _4, _5, _6);
-
-    router->add_route(url::make() / CT_STRING("upload")
-                    / url::bound_string() / url::string(), upload_cb);
+    router->add_route(
+            url::make() / CT_STRING("upload")
+                / url::bound_string() / url::string(), 
+                [upload_handler = upload_handler_,
+                 rights = rights_manager_](auto&& ...args)
+                {
+                    return (*upload_handler)(
+                            rights,
+                            std::forward<decltype(args)>(args)...);
+                });
     
     cb = std::bind(
                     &http::file_handler::operator(),

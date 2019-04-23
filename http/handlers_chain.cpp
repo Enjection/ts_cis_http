@@ -58,8 +58,10 @@ void handlers_chain::handle_header(
             case handle_result::next:
                 break;
             case handle_result::done:
+                reader.done();
                 return;
             case handle_result::error:
+                reader.done();
                 if(error_handler_)
                 {
                     error_handler_(req, ctx, queue);
@@ -67,6 +69,7 @@ void handlers_chain::handle_header(
                 return;
         };
     }
+    reader.done();
     if(error_handler_)
     {
         error_handler_(req, ctx, queue);

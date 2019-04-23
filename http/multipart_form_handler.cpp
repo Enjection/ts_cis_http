@@ -7,7 +7,13 @@
 namespace http
 {
 
+multipart_form_handler::multipart_form_handler(
+        std::filesystem::path files_root)
+    : files_root_(files_root)
+{}
+
 handle_result multipart_form_handler::operator()(
+        std::shared_ptr<rights_manager> rights,
         beast::http::request<beast::http::empty_body>& req,
         request_context& ctx,
         net::http_session::request_reader& reader,
@@ -18,23 +24,21 @@ handle_result multipart_form_handler::operator()(
     if(req.method() == beast::http::verb::post
             && req[beast::http::field::content_type].find("multipart/form-data") == 0)
     {
-        //check project rights
-        std::string boundary;
-        auto boundary_begin = req[beast::http::field::content_type].find("=");
-        if(boundary_begin != req[beast::http::field::content_type].npos)
+        if(auto project_rights 
+                = rights->check_project_right(ctx.username, project);
+                !((!project_rights) 
+                || (project_rights && project_rights.value().write)))
         {
-            boundary = req[beast::http::field::content_type].substr(
-                    boundary_begin + 1,
-                    req[beast::http::field::content_type].size());
+            ctx.res_status = beast::http::status::forbidden;
+            return handle_result::error;
         }
+
         reader.async_read_body<multipart_form_body>(
                 [&](beast::http::request<multipart_form_body>& req)
                 {
                     boost::beast::error_code ec;
-                    req.body().set_boundary(boundary);
-                    std::string fdir = cis::get_root_dir();
-                    fdir = fdir + cis::projects + "/" + project + "/" + dir;
-                    req.body().set_dir(fdir, ec);
+                    req.body().set_dir(
+                            files_root_ / project / dir, ec);
                 },
                 [ctx](
                     beast::http::request<multipart_form_body>&& req,
@@ -51,7 +55,6 @@ handle_result multipart_form_handler::operator()(
         return handle_result::done;
     }
     ctx.res_status = beast::http::status::not_found;
-    reader.done();
     return handle_result::error;
 }
 
