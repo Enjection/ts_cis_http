@@ -15,6 +15,12 @@ namespace asio = boost::asio;                   // from <boost/asio.hpp>
 
 class application
 {
+public:
+    application(const init_params& params);
+
+    void run();
+    void stop();
+private:
     init_params params_;
     database::database db_;
     asio::io_context ioc_;
@@ -32,8 +38,4 @@ class application
     std::shared_ptr<http_router> make_public_http_router();
     std::shared_ptr<websocket_router> make_ws_router();
     std::shared_ptr<http_router> make_cis_http_router();
-public:
-    application(const init_params& params);
-    void run();
-    void stop();
 };

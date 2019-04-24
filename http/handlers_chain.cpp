@@ -26,21 +26,23 @@ void handlers_chain::set_error_handler(const error_handler_t& handler)
 
 void handlers_chain::listen(boost::asio::io_context& ioc, const tcp::endpoint& endpoint)
 {
-    auto accept_handler = 
-    [self = shared_from_this()](tcp::socket&& socket){
+    auto accept_handler = [self = shared_from_this()](tcp::socket&& socket){
         std::make_shared<net::http_session>(
             std::move(socket),
             self)->run();
     };
+
     auto l = std::make_shared<net::listener>(
         ioc,
         accept_handler);
     boost::beast::error_code ec;
     l->listen(endpoint, ec);
+
     if(ec)
     {
         throw generic_error(ec.message());
     }
+
     l->run();
 }
 
@@ -50,6 +52,7 @@ void handlers_chain::handle_header(
             net::http_session::queue& queue) const
 {
     context_t ctx{};
+
     for(auto& handler : handlers_)
     {
         auto result = handler(req, ctx, reader, queue);
@@ -69,7 +72,6 @@ void handlers_chain::handle_header(
                 return;
         };
     }
-    reader.done();
     if(error_handler_)
     {
         error_handler_(req, ctx, queue);
@@ -82,6 +84,7 @@ void handlers_chain::handle_upgrade(
         net::http_session::queue& queue) const
 {
     context_t ctx{};
+
     for(auto& handler : ws_handlers_)
     {
         auto result = handler(req, ctx, socket);
@@ -99,6 +102,7 @@ void handlers_chain::handle_upgrade(
                 return;
         };
     }
+
     if(error_handler_)
     {
         error_handler_(req, ctx, queue);
